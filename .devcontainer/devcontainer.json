@@ -1,0 +1,52 @@
+{
+    "name": "Sentience MUD Dev Environment",
+    "image": "ghcr.io/megacosm-entertainment/sentience_trixie:latest",
+    "remoteUser": "sentiencemud",
+    "workspaceFolder": "/sentience/src",
+    "workspaceMount": "source=${localWorkspaceFolder}/..,target=/sentience,type=bind",
+    "mounts": [],
+    "features": {
+        // Gateway and world server are Go (design doc §12).
+        "ghcr.io/devcontainers/features/go:1": {
+            "version": "1.23"
+        }
+        //"ghcr.io/devcontainers/features/common-utils:2": {
+        //    "installZsh": true,
+        //    "configureZshAsDefaultShell": true
+        //}
+    },
+    "forwardPorts": [9000, 9010, 9020],
+    "portsAttributes": {
+        "9000": { "label": "Telnet" },
+        "9010": { "label": "TLS" },
+        "9020": { "label": "WebSocket" }
+    },
+    "runArgs": [
+        "--cap-add=SYS_PTRACE",
+        "--security-opt", "seccomp=unconfined"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go",
+                "ms-vscode.cpptools",
+                "cweijan.vscode-redis-client",
+                "eamodio.gitlens",
+                "Doppler.doppler-vscode"
+            ],
+            "settings": {
+                "editor.tabSize": 4,
+                "editor.insertSpaces": true,
+                "[c]": { "editor.tabSize": 4 },
+                "git.enableCommitSigning": true,
+                "remote.SSH.enableAgentForwarding": true,
+                "git.useConfigOnly": false,
+                "terminal.integrated.cwd": "/sentience/src"
+            }
+        }
+    },
+    "remoteEnv": {
+        "DOPPLER_TOKEN": "${localEnv:DOPPLER_TOKEN}"
+    },
+    //"postCreateCommand": "cd /sentience/src/.deps && ./build_deps.sh"
+}

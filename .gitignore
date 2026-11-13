@@ -1,0 +1,30 @@
+# Build output
+/bin/
+
+# TLS material: certificates and keys are supplied at run time, never committed
+*.pem
+*.key
+*.crt
+*.p12
+
+# Secrets and local environment
+.env
+.env.*
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Claude Code: per-user local settings (shared skills in .claude/skills are committed)
+.claude/settings.local.json
+
+# Note: internal/*/testdata/fuzz/ is deliberately NOT ignored. Go writes a
+# failing fuzz input there; committing it turns the crash into a regression test.
