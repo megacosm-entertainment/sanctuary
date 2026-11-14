@@ -9,7 +9,7 @@ Run from anywhere; each script changes to `src/` itself. Go is the only requirem
 | `scripts/smoke.sh -external` | The same client checks against a gateway you already started on 9000/9010/9020. |
 | `scripts/vulncheck.sh` | Checks the code against the Go vulnerability database with a pinned `govulncheck`, which reports only vulnerabilities our code can reach. Exits non-zero if any are found. Downloads the tool on first use, so run it in the devcontainer. |
 | `scripts/run.sh` | Builds and runs the gateway in the foreground on 9000 (telnet), 9010 (telnet+TLS) and 9020 (WSS), using a generated dev certificate. Extra args go to the gateway, e.g. `-log-level debug` or `-ws-plain`. |
-| `scripts/run.sh -split` | As above, but the stub realm runs as its own process and dials the gateway's realm port (`127.0.0.1:9030`) over mTLS, as in production. Identities are created on first use in `.dev/keys` (git-ignored). Ctrl-C stops both. |
+| `scripts/run.sh -split` | As above, but the stub realm runs as its own process and dials the gateway's realm port (`127.0.0.1:9030`) over mTLS, as in production. Identities are created on first use in `.dev/keys` (git-ignored). `-log-level` applies to both processes; `REALM_ADDR=host:port` moves the realm port. Ctrl-C stops both, and if either exits the other is stopped too. |
 
 Manual checks against real clients (with `scripts/run.sh` running; ports are forwarded to the host):
 
