@@ -20,8 +20,8 @@ const (
 	msgTOTPHave     = "You already have an authenticator. 'totp off' removes it; 'codes' gives you new recovery codes.\n"
 	msgTOTPNone     = "You have no authenticator set up. 'totp' sets one up.\n"
 	msgTOTPIntroFmt = "Add this account to your authenticator app (Google Authenticator, Aegis, 1Password, ...).\n" +
-		"Enter this key by hand, choosing a time-based code:\n  %s\n" +
-		"or open this link, if your app can:\n  %s\n"
+		"Enter this key by hand, choosing a time-based code of 6 digits:\n  %s\n" +
+		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n"
 	msgTOTPConfirm = "The 6-digit code your app shows (Enter to cancel): "
 	msgTOTPOn      = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
 	msgTOTPOff     = "Your authenticator is removed, with its recovery codes.\n"
@@ -160,6 +160,10 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 		if step, ok = account.CheckTOTP(secret, code, t.h.cfg.now(), 0); ok {
 			break
 		}
+		if hint, ok := digitsHint(code); ok {
+			t.say(hint)
+			continue
+		}
 		t.say(msgCodeWrong + "Check that the app's clock is right and that you entered the whole key.\n")
 	}
 	sealed, err := t.h.cfg.Key.Seal(secret, a.ID)
@@ -249,4 +253,15 @@ func (t *turn) newCodes(a *account.Account) (*account.Account, error) {
 	t.s.Log().Info("recovery codes replaced", "account", a.Name)
 	t.say(fmt.Sprintf(msgCodesFmt, codeList(shown)) + msgOldCodes)
 	return next, nil
+}
+
+// digitsHint explains a code of all digits but the wrong length: usually
+// an app set to 7 or 8 digits (Authy does this for keys entered by hand).
+func digitsHint(code string) (string, bool) {
+	c := strings.ReplaceAll(code, " ", "")
+	if c == "" || strings.Trim(c, "0123456789") != "" || len(c) == account.TOTPDigits {
+		return "", false
+	}
+	return fmt.Sprintf("Codes have %d digits; that one has %d. If your app shows %d, set the account's code length to %d in the app.\n",
+		account.TOTPDigits, len(c), len(c), account.TOTPDigits), true
 }

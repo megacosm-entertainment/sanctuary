@@ -70,8 +70,13 @@ func TestTOTPDisplayAndURI(t *testing.T) {
 		t.Errorf("TOTPDisplay = %q", got)
 	}
 	uri := TOTPURI("Sanctuary", "Mara", secret)
-	if !strings.HasPrefix(uri, "otpauth://totp/Sanctuary:Mara?") || !strings.Contains(uri, "secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ") {
+	if !strings.HasPrefix(uri, "otpauth://totp/Sanctuary:Mara?") {
 		t.Errorf("TOTPURI = %q", uri)
+	}
+	for _, p := range []string{"secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "issuer=Sanctuary", "algorithm=SHA1", "digits=6", "period=30"} {
+		if !strings.Contains(uri, p) {
+			t.Errorf("TOTPURI = %q, missing %s", uri, p)
+		}
 	}
 }
 

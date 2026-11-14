@@ -480,6 +480,10 @@ func (t *turn) secondFactor(a *account.Account, cancellable bool) (*account.Acco
 			t.say(msgTrouble)
 			return nil, errStop
 		}
+		if hint, ok := digitsHint(code); ok {
+			t.say(hint)
+			continue
+		}
 		t.say(msgCodeWrong)
 	}
 	t.say(msgCodeTries)

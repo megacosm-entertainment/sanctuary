@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,7 +52,15 @@ func TOTPDisplay(secret []byte) string {
 // TOTPURI is the otpauth:// URI an app reads from a QR code or a link.
 func TOTPURI(issuer, account string, secret []byte) string {
 	label := url.PathEscape(issuer + ":" + account)
-	q := url.Values{"secret": {b32.EncodeToString(secret)}, "issuer": {issuer}}
+	// Every parameter is spelled out, though these are the defaults: some
+	// apps (Authy among them) otherwise guess, and guess 7 digits.
+	q := url.Values{
+		"secret":    {b32.EncodeToString(secret)},
+		"issuer":    {issuer},
+		"algorithm": {"SHA1"},
+		"digits":    {strconv.Itoa(totpDigits)},
+		"period":    {strconv.Itoa(int(totpStep / time.Second))},
+	}
 	return "otpauth://totp/" + label + "?" + q.Encode()
 }
 
@@ -220,3 +229,6 @@ func uniformIndex(n int) (int, error) {
 func TOTPCode(secret []byte, now time.Time) string {
 	return totpAt(secret, now.Unix()/int64(totpStep/time.Second))
 }
+
+// TOTPDigits is how many digits a code has.
+const TOTPDigits = totpDigits

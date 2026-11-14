@@ -224,3 +224,36 @@ func TestChangePasswordNeedsCodeWithTOTP(t *testing.T) {
 	h.Type("")
 	contains(t, prompt(t, h, "Realm"), "Cancelled")
 }
+
+// Authy and some other apps show 7 digits for a key entered by hand; say
+// so instead of a bare "not right".
+func TestWrongLengthCodeIsExplained(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h := f.start()
+	inLobby(t, h, "Mara", goodPassword)
+	h.Type("totp")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	intro := prompt(t, h, "6-digit code")
+	// The link starts its line, so copying the line copies a valid link.
+	if !strings.Contains(intro, "\notpauth://totp/") {
+		t.Fatalf("link not at the start of a line: %q", intro)
+	}
+	contains(t, intro, "digits=6")
+	h.Type("1234567")
+	contains(t, prompt(t, h, "6-digit code"), "that one has 7")
+	m := uriSecret.FindStringSubmatch(intro)
+	secret, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(m[1])
+	h.Type(account.TOTPCode(secret, clk.now()))
+	prompt(t, h, "Realm")
+
+	clk.step()
+	h2 := f.start()
+	login(t, h2, "Mara", goodPassword)
+	h2.Type("123 4567")
+	contains(t, prompt(t, h2, "Authenticator code"), "that one has 7")
+	h2.Type(account.TOTPCode(secret, clk.now()))
+	prompt(t, h2, "Realm")
+}
