@@ -24,18 +24,22 @@ const (
 		"Enter this key by hand, choosing a time-based code of 6 digits:\n  %s\n" +
 		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n" +
 		"Type 'qr' at the prompt below to see it as a QR code to scan.\n"
-	msgTOTPConfirm    = "The 6-digit code your app shows ('qr' for a QR code, Enter to stop for now): "
-	msgTruncatedFmt   = "Your app seems to have only the first %d of the %d characters of the key. Remove it from the app and enter the whole key again; it ends with the last group shown above.\n"
-	msgResumeFmt      = "Continuing the set-up you began on %s, with the same key: if your app already has it, just type its code.\n"
-	msgDiscarded      = "The unfinished set-up is discarded; remove its entry from your app if you added it.\n"
-	msgPaused         = "Set-up paused. 'totp' continues it with the same key (for a day); 'totp off' discards it.\n"
-	msgQRAfter        = "Scan it with your app, then type the code it shows.\n"
-	msgQRScreenReader = "Your client reports a screen reader, so the QR code is not drawn: the key above is the same thing. Type 'qr show' to draw it anyway.\n"
-	msgQRTooNarrowFmt = "The QR code needs %d columns and your window has %d. Widen it and type 'qr' again, type 'qr show' to draw it anyway, or use the key or link above.\n"
-	msgQRNoSizeFmt    = "Your client has not reported its window size, so this may wrap if the window is narrower than %d columns. (Turning on NAWS, window size, in the client lets the server check.)\n"
-	msgTOTPOn         = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
-	msgTOTPOff        = "Your authenticator is removed, with its recovery codes.\n"
-	msgCodesFmt       = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
+	msgTOTPConfirm      = "The 6-digit code your app shows ('qr' for a QR code, Enter to stop for now): "
+	msgTruncatedFmt     = "Your app seems to have only the first %d of the %d characters of the key. Remove it from the app and enter the whole key again; it ends with the last group shown above.\n"
+	msgResumeFmt        = "Continuing the set-up you began on %s, with the same key: if your app already has it, just type its code.\n"
+	msgDiscarded        = "The unfinished set-up is discarded; remove its entry from your app if you added it.\n"
+	msgPaused           = "Set-up paused. 'totp' continues it with the same key (for a day); 'totp off' discards it.\n"
+	msgQRAfter          = "Scan it with your app, then type the code it shows.\n"
+	msgQRTrySmall       = "If it does not scan, 'qr small' draws it half the size, which suits some clients better.\n"
+	msgQRTryLarge       = "If it does not scan, 'qr' draws it full size, which suits most MUD clients better.\n"
+	msgQRSmallNeedsUTF8 = "The small QR code needs a client that has turned on UTF-8; 'qr' draws the full-size one.\n"
+	msgQRSmallerFmt     = "Your window (%d columns) is too narrow for the full-size code, so this is the half-size one.\n"
+	msgQRScreenReader   = "Your client reports a screen reader, so the QR code is not drawn: the key above is the same thing. Type 'qr show' to draw it anyway.\n"
+	msgQRTooNarrowFmt   = "The QR code needs %d columns and your window has %d. Widen it and type 'qr' again, type 'qr show' to draw it anyway, or use the key or link above.\n"
+	msgQRNoSizeFmt      = "Your client has not reported its window size, so this may wrap if the window is narrower than %d columns. (Turning on NAWS, window size, in the client lets the server check.)\n"
+	msgTOTPOn           = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
+	msgTOTPOff          = "Your authenticator is removed, with its recovery codes.\n"
+	msgCodesFmt         = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
 		"Keep them somewhere safe: they are shown only now.\n%s"
 	msgOldCodes   = "Your old recovery codes no longer work.\n"
 	msgRaceTOTP   = "Your authenticator changed in another session; nothing was changed here.\n"
@@ -177,8 +181,9 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 		case "":
 			t.say(msgPaused)
 			return nil, errFailed
-		case "qr", "qr show":
-			t.showQR(account.TOTPURI(t.issuer(), a.Name, secret), code != "qr")
+		case "qr", "qr show", "qr small", "qr small show", "qr show small":
+			lc := strings.ToLower(code)
+			t.showQR(account.TOTPURI(t.issuer(), a.Name, secret), strings.Contains(lc, "small"), strings.Contains(lc, "show"))
 			tries-- // not an attempt
 			continue
 		}
@@ -359,15 +364,22 @@ func (t *turn) discardPending(a *account.Account) (*account.Account, error) {
 	return next, nil
 }
 
-// showQR draws uri as a QR code: half blocks for a client that has claimed
-// UTF-8, coloured spaces otherwise (twice as wide). It checks the width
-// the client reported (NAWS); when none was reported it draws anyway,
-// since the player asked. anyway ('qr show') skips the width check and the
-// screen-reader explanation.
-func (t *turn) showQR(uri string, anyway bool) {
+// showQR draws uri as a QR code. The default draws each module as two
+// spaces on a black or white background: MUD clients fill backgrounds
+// across the whole line, line spacing included, where half-block glyphs
+// leave gaps (and many MUD fonts lack them). small ('qr small') uses half
+// blocks, half the size, for real terminals and narrow windows, and needs
+// UTF-8. The width the client reported (NAWS) is checked each time; with
+// none reported the code is drawn anyway, since the player asked. anyway
+// ('qr show') skips the width check and the screen-reader explanation.
+func (t *turn) showQR(uri string, small, anyway bool) {
 	c := t.s.Client() // as now: a window resized since is seen
 	if c.ScreenReader() && !anyway {
 		t.say(msgQRScreenReader)
+		return
+	}
+	if small && !c.UTF8() {
+		t.say(msgQRSmallNeedsUTF8)
 		return
 	}
 	code, err := qrtext.Encode(uri)
@@ -376,16 +388,25 @@ func (t *turn) showQR(uri string, anyway bool) {
 		t.say(msgTrouble)
 		return
 	}
-	drawing, need := code.Spaces(), code.SpacesWidth()
-	if c.UTF8() {
-		drawing, need = code.HalfBlocks(), code.HalfBlocksWidth()
+	drawing, need, other := code.Spaces(), code.SpacesWidth(), msgQRTrySmall
+	if small {
+		drawing, need, other = code.HalfBlocks(), code.HalfBlocksWidth(), msgQRTryLarge
+	}
+	note := ""
+	if !small && c.Width > 0 && need > c.Width && c.UTF8() && code.HalfBlocksWidth() <= c.Width {
+		// Too narrow for the large form: the small one fits.
+		drawing, need, other = code.HalfBlocks(), code.HalfBlocksWidth(), msgQRTryLarge
+		note = fmt.Sprintf(msgQRSmallerFmt, c.Width)
 	}
 	switch {
 	case c.Width > 0 && need > c.Width && !anyway:
 		t.say(fmt.Sprintf(msgQRTooNarrowFmt, need, c.Width))
+		return
 	case c.Width == 0:
-		t.say(fmt.Sprintf(msgQRNoSizeFmt, need) + drawing + msgQRAfter)
-	default:
-		t.say(drawing + msgQRAfter)
+		note += fmt.Sprintf(msgQRNoSizeFmt, need)
 	}
+	if !c.UTF8() {
+		other = ""
+	}
+	t.say(note + drawing + msgQRAfter + other)
 }

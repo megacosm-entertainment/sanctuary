@@ -329,18 +329,46 @@ func TestQRCodeOnRequest(t *testing.T) {
 	f := newFixture(t)
 	f.useClock()
 	f.add("Mara", goodPassword)
-	utf8 := session.ClientInfo{Charset: "UTF-8", Width: 100}
-	h, intro := setupWith(t, f, utf8)
-	if strings.ContainsAny(intro, "▀▄█") || strings.Contains(intro, "\x1b[4") {
+	isLarge := func(s string) bool { return strings.Contains(s, "\x1b[40m  ") }
+	isSmall := func(s string) bool { return strings.ContainsAny(s, "▀▄█") }
+
+	// A UTF-8 client with room: the full-size drawing (backgrounds only,
+	// which MUD clients fill across line spacing), with the small one
+	// offered; 'qr small' draws half blocks.
+	h, intro := setupWith(t, f, session.ClientInfo{Charset: "UTF-8", Width: 120})
+	if isLarge(intro) || isSmall(intro) {
 		t.Fatal("QR code drawn without being asked for")
 	}
 	contains(t, intro, "'qr'")
 	h.Type("qr")
 	text := prompt(t, h, "6-digit code")
-	if !strings.ContainsAny(text, "▀▄█") {
-		t.Fatalf("no half-block QR code for a UTF-8 client: %q", text)
+	if !isLarge(text) || isSmall(text) {
+		t.Fatalf("want the full-size drawing by default: %q", text)
+	}
+	contains(t, text, "'qr small'")
+	h.Type("qr small")
+	if text = prompt(t, h, "6-digit code"); !isSmall(text) || isLarge(text) {
+		t.Fatalf("qr small: want half blocks: %q", text)
 	}
 	contains(t, text, "Scan it with your app")
+
+	// Too narrow for full size but not for small: small, saying why.
+	hn, _ := setupWith(t, f, session.ClientInfo{Charset: "UTF-8", Width: 80})
+	hn.Type("qr")
+	text = prompt(t, hn, "6-digit code")
+	if !isSmall(text) {
+		t.Fatalf("80 columns, UTF-8: want the small drawing: %q", text)
+	}
+	contains(t, text, "too narrow for the full-size code")
+
+	// Small needs UTF-8.
+	hs, _ := setupWith(t, f, session.ClientInfo{Width: 120})
+	hs.Type("qr small")
+	text = prompt(t, hs, "6-digit code")
+	contains(t, text, "needs a client that has turned on UTF-8")
+	if isSmall(text) {
+		t.Fatal("half blocks for a client without UTF-8")
+	}
 
 	// Without UTF-8, plain spaces on coloured backgrounds, when it fits.
 	h2, _ := setupWith(t, f, session.ClientInfo{Width: 120})
@@ -382,12 +410,12 @@ func TestQRCodeOnRequest(t *testing.T) {
 	h4.Type("qr")
 	text = prompt(t, h4, "6-digit code")
 	contains(t, text, "screen reader")
-	if strings.ContainsAny(text, "▀▄█") {
+	if isSmall(text) || isLarge(text) {
 		t.Fatal("QR code drawn for a screen reader")
 	}
 	h4.Type("qr show")
-	if text = prompt(t, h4, "6-digit code"); !strings.ContainsAny(text, "▀▄█") {
-		t.Fatal("qr show did not draw it")
+	if text = prompt(t, h4, "6-digit code"); !isSmall(text) && !isLarge(text) {
+		t.Fatalf("qr show did not draw it: %q", text)
 	}
 }
 
