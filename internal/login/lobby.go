@@ -14,17 +14,18 @@ const (
 	msgHelloFmt    = "Hello, %s.\n"
 	msgRealms      = "Realms:\n"
 	msgNoRealms    = "No realms are running right now. Press Enter to wait for one, or type 'quit' to leave.\n"
-	msgLobbyHelp   = "Type a realm's number or name to enter it, or press Enter for the first one.\n'realms' lists them again; 'quit' leaves.\n"
+	msgLobbyHelp   = "Type a realm's number or name to enter it, or press Enter for the first one.\n'realms' lists them again; 'quit' leaves.\nYour account: 'password' changes your password; 'totp' sets up an authenticator app,\n'totp off' removes it, 'codes' gives you new recovery codes.\n"
 	msgNoSuch      = "There is no realm called that. Type 'realms' to see the list.\n"
 	msgBackInLobby = "\nYou are back in the lobby.\n"
 	msgLobbyPrompt = "Realm (Enter for %s): "
 	msgLobbyWait   = "Lobby (Enter to wait for a realm): "
+	msgLobbyHint   = "Type 'help' for what you can do here.\n"
 )
 
 // lobby lists realms and takes the player into the one they choose, and
 // back here when they leave it, until they quit or disconnect.
 func (t *turn) lobby(a *account.Account) {
-	t.say(fmt.Sprintf(msgHelloFmt, a.Name))
+	t.say(fmt.Sprintf(msgHelloFmt, a.Name) + msgLobbyHint)
 	list := true
 	for {
 		realms := t.h.cfg.Realms.Hub.Realms()
@@ -50,6 +51,12 @@ func (t *turn) lobby(a *account.Account) {
 			continue
 		case "realms", "list", "look":
 			list = true
+			continue
+		}
+		if handled, err := t.manage(&a, choice); handled {
+			if err != nil {
+				return
+			}
 			continue
 		}
 		id, ok := pick(realms, choice)

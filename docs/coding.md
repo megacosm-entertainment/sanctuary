@@ -58,7 +58,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Gateway side of realm links; route a player to a realm and relay until they leave it (`Play` returns `Back` or `Gone`) | `proxy.Hub`, `proxy.Handler`, `Handler.Play` | `internal/proxy` |
 | One reader for a session, shared by stages that take turns (login, lobby, realm) | `session.Inbox` | `internal/session/inbox.go` |
 | Who a session logged in as | `Session.SetAccount`, `Session.Account` | `internal/session/session.go` |
-| Login, sign-up and the lobby, in front of the proxy | `login.New`, `login.Handler` | `internal/login` |
+| Login, sign-up and the lobby (with password and authenticator management), in front of the proxy | `login.New`, `login.Handler` | `internal/login` |
 | Slow repeated failures across connections (count at start, refund on success, queue parallel attempts) | `login.Throttle` | `internal/login/throttle.go` |
 | Rate-limit key for an address (IPv6 grouped by /64) | `proxy.SourceKey` | `internal/proxy/listener.go` |
 | Realm port: handshake limits, per-source rate limiting | `proxy.Hub.ServeListener` | `internal/proxy/listener.go` |

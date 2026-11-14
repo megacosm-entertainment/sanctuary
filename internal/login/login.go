@@ -58,6 +58,8 @@ type Config struct {
 
 	// Timeout is how long a connection may take to log in. Default 2 min.
 	Timeout time.Duration
+	// Issuer names this server in authenticator apps; default "Sanctuary".
+	Issuer string
 	// Banner is shown on connect. Optional.
 	Banner string
 
@@ -118,6 +120,7 @@ const (
 	msgPlainRefuse  = "This server only accepts logins over an encrypted connection.%s\nGoodbye.\n"
 	msgCodePrompt   = "Authenticator code (or a recovery code): "
 	msgCodeWrong    = "That code is not right.\n"
+	msgCodeTries    = "Too many wrong codes.\n"
 	msgRecoveryLeft = "Recovery code accepted. You have %d left; set up new ones when you can.\n"
 	msgMustChange   = "Staff have reset your password: please choose a new one.\n"
 	msgPwPrompt     = "Password: "
@@ -307,7 +310,11 @@ func (t *turn) login() (*account.Account, error) {
 			}
 			continue
 		}
-		if a, err = t.secondFactor(a); err != nil {
+		if a, err = t.secondFactor(a, false); err != nil {
+			if errors.Is(err, errFailed) {
+				t.say(msgTooMany)
+				return nil, errStop
+			}
 			return nil, err
 		}
 		if a.Disabled != "" {
@@ -425,9 +432,13 @@ func (t *turn) modify(a *account.Account, fn func(*account.Account) error) (*acc
 
 var errReplay = errors.New("login: code already used")
 
+// errCancelled: the player left a prompt empty to back out.
+var errCancelled = errors.New("login: cancelled")
+
 // secondFactor asks for an authenticator or recovery code when the account
-// has TOTP enrolled.
-func (t *turn) secondFactor(a *account.Account) (*account.Account, error) {
+// has TOTP enrolled. errFailed means the tries ran out or the throttle
+// refused (the player has been told); the caller decides what follows.
+func (t *turn) secondFactor(a *account.Account, cancellable bool) (*account.Account, error) {
 	if a.TOTP == nil {
 		return a, nil
 	}
@@ -444,6 +455,9 @@ func (t *turn) secondFactor(a *account.Account) (*account.Account, error) {
 			return nil, err
 		}
 		code := strings.TrimSpace(line)
+		if code == "" && cancellable {
+			return nil, errCancelled
+		}
 		if code == "" {
 			tries--
 			continue
@@ -451,7 +465,7 @@ func (t *turn) secondFactor(a *account.Account) (*account.Account, error) {
 		wait, ok := t.h.cfg.Throttle.Begin(key)
 		if !ok {
 			t.say(msgThrottled)
-			return nil, errStop
+			return nil, errFailed
 		}
 		if err := t.wait(wait); err != nil {
 			return nil, err
@@ -468,8 +482,8 @@ func (t *turn) secondFactor(a *account.Account) (*account.Account, error) {
 		}
 		t.say(msgCodeWrong)
 	}
-	t.say(msgTooMany)
-	return nil, errStop
+	t.say(msgCodeTries)
+	return nil, errFailed
 }
 
 // useCode checks code as a TOTP code (digits) or a recovery code, and
@@ -507,12 +521,16 @@ func (t *turn) useCode(a *account.Account, secret []byte, code string) (*account
 	return next, err
 }
 
-// newPassword asks for a new password twice until it is acceptable.
-func (t *turn) newPassword() (string, error) {
+// newPassword asks for a new password twice until it is acceptable. When
+// cancellable, an empty first answer backs out (errCancelled).
+func (t *turn) newPassword(cancellable bool) (string, error) {
 	for {
 		pw, err := t.ask(fmt.Sprintf(msgNewPwPrompt, account.MinPassword), true)
 		if err != nil {
 			return "", err
+		}
+		if pw == "" && cancellable {
+			return "", errCancelled
 		}
 		if err := account.CheckNewPassword(pw); err != nil {
 			t.say(userError(err) + "\n")
@@ -551,7 +569,7 @@ func userError(err error) string {
 
 func (t *turn) changePassword(a *account.Account) (*account.Account, error) {
 	t.say(msgMustChange)
-	hash, err := t.newPassword()
+	hash, err := t.newPassword(false)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +646,7 @@ func (t *turn) signup(plainWarned *bool) (*account.Account, error) {
 		t.say(fmt.Sprintf(msgPlainWarn, secureHint(t.h.cfg.SecureHint)))
 		*plainWarned = true
 	}
-	hash, err := t.newPassword()
+	hash, err := t.newPassword(false)
 	if err != nil {
 		return nil, err
 	}

@@ -267,5 +267,6 @@ func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, er
 		SecureHint:      hint,
 		Timeout:         *o.loginTimeout,
 		Realms:          proxy.Handler{Hub: hub},
+		Issuer:          *o.name,
 	})
 }

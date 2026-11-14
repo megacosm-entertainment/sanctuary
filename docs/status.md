@@ -49,12 +49,13 @@ Done:
 - The lobby lists realms; Enter picks the first. Leaving a realm (`/quit` in the stub) comes back to the lobby; `quit` there disconnects. The account travels to the realm in `session.open` (protocol.md §7a), and the stub's `/info` shows it.
 - Settings: `DATA_DIR` (default `data`), `SIGNUP`, `REFUSE_PLAINTEXT_LOGIN`, `RESERVED_NAMES`, `RESERVED_NAMES_REPLACE`, `ACCOUNT_KEY`, `LOGIN_TIMEOUT`. Without `ACCOUNT_KEY` the gateway generates `DATA_DIR/account.key` and warns. `scripts/doppler-seed.sh` sets the key, and the other account settings at their defaults, in Doppler only when they are missing, so a reseed keeps what has been changed there (a new key would also orphan TOTP enrolments); dev uploads the same `data/account.key` local runs use. Compose keeps accounts on the `gateway-data` volume.
 - Staff commands, `sanctuary-gateway account list|show|create|reset|invite|role|disable|enable`: the same settings as the gateway, safe while it runs (the store's lock and revision checks). `create` and `reset` print a temporary password that must be changed at the next login; `reset -totp` removes a lost authenticator; reserved names need `-allow-reserved`. Changes apply at the next login: a player already connected stays connected (see open items). Compose usage is in `deploy/README.md`.
+- Account commands in the lobby (`help` lists them): `password` changes it; `totp` sets up an authenticator (key in groups of four and an `otpauth://` link; turned on only after a code from the app checks out; ten recovery codes shown once); `totp off` removes it and `codes` replaces the recovery codes. Each asks for the password again, and with an authenticator a current code too, so a session left logged in cannot be used to take the account over. Failures go back to the lobby, through the same throttle as logins. The issuer shown in the app is `SANCTUARY_NAME`.
 
 Try it: `scripts/run.sh`, connect, type `new`, and choose a name and password. Accounts are kept in `data/` (git-ignored); delete it to start over.
 
 Next:
 
-1. 3c: from the lobby, TOTP enrolment (with a live test in an authenticator app) and password changes.
+1. A live test of TOTP set-up and login with a real authenticator app.
 2. `Char.Login` over GMCP, then OAuth.
 
 ## Stage 02: internal session protocol and a stub world server (done)
