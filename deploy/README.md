@@ -129,7 +129,13 @@ address, so it must see players' real addresses.
   `scripts/compose.sh` notices rootless Podman and adds
   `compose.rootless.yaml`: the gateway uses pasta networking, which keeps
   addresses, and the realm shares the gateway's network namespace and dials
-  the realm port on loopback. Set `SANCTUARY_ROOTLESS=0` or `1` to override
+  the realm port on loopback. Because Podman will not remove a container
+  that others depend on, `compose.sh up` first removes the realm
+  containers (compose recreates them; a realm reconnects by itself). Run
+  plain `podman compose up` and you may see "has dependent containers";
+  `podman rm -f sanctuary-realm-stub-1` clears it. The realm's output may
+  not appear in compose's; `podman logs -f sanctuary-realm-stub-1` shows it.
+  Set `SANCTUARY_ROOTLESS=0` or `1` to override
   the detection.
 - **Behind a load balancer or proxy:** it must not hide addresses either.
   The gateway does not read PROXY protocol headers or `X-Forwarded-For`

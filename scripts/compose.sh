@@ -47,6 +47,15 @@ if [ "$rootless" = 1 ]; then
     echo "==> rootless Podman: pasta networking, so the gateway sees players' addresses"
 fi
 compose+=("${files[@]+"${files[@]}"}")
+# Under rootless Podman the realm shares the gateway's network namespace,
+# and Podman will not remove (so compose cannot recreate) a container that
+# others depend on. Remove the dependents first: compose recreates them,
+# and a realm reconnects by itself.
+if [ "$rootless" = 1 ] && [ "${1:-}" = up ] && command -v podman >/dev/null; then
+    for c in $(podman ps -a --filter label=com.docker.compose.project=sanctuary --format '{{.Names}}'); do
+        case "$c" in *-gateway-*) ;; *) podman rm -f "$c" >/dev/null ;; esac
+    done
+fi
 
 if [ -z "$doppler_config" ]; then
     [ -e .dev/env/gateway.env ] || scripts/devkeys.sh >/dev/null
