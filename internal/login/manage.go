@@ -31,7 +31,8 @@ const (
 	msgPaused         = "Set-up paused. 'totp' continues it with the same key (for a day); 'totp off' discards it.\n"
 	msgQRAfter        = "Scan it with your app, then type the code it shows.\n"
 	msgQRScreenReader = "Your client reports a screen reader, so the QR code is not drawn: the key above is the same thing. Type 'qr show' to draw it anyway.\n"
-	msgQRTooNarrowFmt = "Your window (%d columns) is too narrow to draw the QR code; widen it and type 'qr' again, or use the key or link above.\n"
+	msgQRTooNarrowFmt = "The QR code needs %d columns and your window has %d. Widen it and type 'qr' again, type 'qr show' to draw it anyway, or use the key or link above.\n"
+	msgQRNoSizeFmt    = "Your client has not reported its window size, so this may wrap if the window is narrower than %d columns. (Turning on NAWS, window size, in the client lets the server check.)\n"
 	msgTOTPOn         = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
 	msgTOTPOff        = "Your authenticator is removed, with its recovery codes.\n"
 	msgCodesFmt       = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
@@ -266,35 +267,6 @@ func (t *turn) pendingKey(a *account.Account) ([]byte, bool, error) {
 	return secret, false, nil
 }
 
-// showQR draws uri as a QR code, as the client can show it: half blocks
-// for UTF-8, coloured spaces otherwise when the window is wide enough.
-// A screen reader gets an explanation unless the player insists (anyway).
-func (t *turn) showQR(uri string, anyway bool) {
-	c := t.s.Client()
-	if c.ScreenReader() && !anyway {
-		t.say(msgQRScreenReader)
-		return
-	}
-	code, err := qrtext.Encode(uri)
-	if err != nil {
-		t.s.Log().Error("encoding a QR code", "err", err)
-		t.say(msgTrouble)
-		return
-	}
-	width := c.Width
-	if width == 0 {
-		width = 80 // not reported: assume the classic terminal
-	}
-	switch {
-	case c.UTF8() && code.HalfBlocksWidth() <= width:
-		t.say(code.HalfBlocks() + msgQRAfter)
-	case code.SpacesWidth() <= width:
-		t.say(code.Spaces() + msgQRAfter)
-	default:
-		t.say(fmt.Sprintf(msgQRTooNarrowFmt, width))
-	}
-}
-
 func codeList(codes []string) string {
 	var b strings.Builder
 	for i, c := range codes {
@@ -385,4 +357,35 @@ func (t *turn) discardPending(a *account.Account) (*account.Account, error) {
 	}
 	t.say(msgDiscarded)
 	return next, nil
+}
+
+// showQR draws uri as a QR code: half blocks for a client that has claimed
+// UTF-8, coloured spaces otherwise (twice as wide). It checks the width
+// the client reported (NAWS); when none was reported it draws anyway,
+// since the player asked. anyway ('qr show') skips the width check and the
+// screen-reader explanation.
+func (t *turn) showQR(uri string, anyway bool) {
+	c := t.s.Client() // as now: a window resized since is seen
+	if c.ScreenReader() && !anyway {
+		t.say(msgQRScreenReader)
+		return
+	}
+	code, err := qrtext.Encode(uri)
+	if err != nil {
+		t.s.Log().Error("encoding a QR code", "err", err)
+		t.say(msgTrouble)
+		return
+	}
+	drawing, need := code.Spaces(), code.SpacesWidth()
+	if c.UTF8() {
+		drawing, need = code.HalfBlocks(), code.HalfBlocksWidth()
+	}
+	switch {
+	case c.Width > 0 && need > c.Width && !anyway:
+		t.say(fmt.Sprintf(msgQRTooNarrowFmt, need, c.Width))
+	case c.Width == 0:
+		t.say(fmt.Sprintf(msgQRNoSizeFmt, need) + drawing + msgQRAfter)
+	default:
+		t.say(drawing + msgQRAfter)
+	}
 }

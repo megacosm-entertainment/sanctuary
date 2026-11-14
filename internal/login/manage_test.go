@@ -352,7 +352,30 @@ func TestQRCodeOnRequest(t *testing.T) {
 	// Too narrow for it.
 	h3, _ := setupWith(t, f, session.ClientInfo{Width: 60})
 	h3.Type("qr")
-	contains(t, prompt(t, h3, "6-digit code"), "too narrow")
+	text = prompt(t, h3, "6-digit code")
+	contains(t, text, "your window has 60")
+	if strings.Contains(text, "\x1b[40m  ") {
+		t.Fatal("drawn in a window reported too narrow")
+	}
+	// qr show draws it anyway.
+	h3.Type("qr show")
+	if text = prompt(t, h3, "6-digit code"); !strings.Contains(text, "\x1b[40m  ") {
+		t.Fatal("qr show did not draw it in a narrow window")
+	}
+	// A window widened at the prompt is seen: the size is read each time.
+	h3.Send(session.ClientUpdate{Info: session.ClientInfo{Width: 120}})
+	h3.Type("qr")
+	if text = prompt(t, h3, "6-digit code"); !strings.Contains(text, "\x1b[40m  ") || strings.Contains(text, "your window has") {
+		t.Fatalf("after widening to 120, still refused: %q", text)
+	}
+	// No size reported: drawn, with a note.
+	h5, _ := setupWith(t, f, session.ClientInfo{})
+	h5.Type("qr")
+	text = prompt(t, h5, "6-digit code")
+	contains(t, text, "has not reported its window size")
+	if !strings.Contains(text, "\x1b[40m  ") {
+		t.Fatal("not drawn when the size is unknown")
+	}
 
 	// A screen reader is told, and can insist.
 	h4, _ := setupWith(t, f, session.ClientInfo{Charset: "UTF-8", HasMTTS: true, MTTS: session.MTTSScreenReader | session.MTTSUTF8, Width: 100})
