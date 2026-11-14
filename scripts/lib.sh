@@ -4,21 +4,28 @@ set -euo pipefail
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SRC_DIR"
 
-if ! command -v go >/dev/null 2>&1; then
-    echo "error: Go is not installed in this environment." >&2
-    echo "Build and test in the devcontainer (image: docker/dev/Dockerfile), which provides it." >&2
-    exit 1
-fi
+# need_go: scripts that build or test call this. Scripts that only run
+# containers (compose.sh -doppler) do not need Go on the host: the runtime
+# image builds the binaries itself.
+need_go() {
+    if ! command -v go >/dev/null 2>&1; then
+        echo "error: Go is not installed in this environment." >&2
+        echo "Build and test in the devcontainer (image: docker/dev/Dockerfile), which provides it." >&2
+        exit 1
+    fi
+}
 
 # The bind mount can make git refuse to stamp version info; it isn't needed.
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 
 build_gateway() {
+    need_go
     echo "==> building bin/sanctuary-gateway"
     go build -o bin/sanctuary-gateway ./cmd/sanctuary-gateway
 }
 
 build_realm() {
+    need_go
     echo "==> building bin/sanctuary-realm"
     go build -o bin/sanctuary-realm ./cmd/sanctuary-realm
 }

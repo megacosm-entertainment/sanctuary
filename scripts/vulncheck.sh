@@ -9,6 +9,7 @@
 # govulncheck is run at a pinned version with `go run`, which downloads it
 # into the Go module cache on first use. Run this in the devcontainer.
 source "$(dirname "$0")/lib.sh"
+need_go
 
 # Pinned: bump deliberately, not implicitly.
 GOVULNCHECK_VERSION="v1.9.0"

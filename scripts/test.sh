@@ -6,6 +6,7 @@
 #                                input for 30 seconds each
 #   scripts/test.sh -run MTTS    pass anything else through to go test
 source "$(dirname "$0")/lib.sh"
+need_go
 
 fuzz=0
 args=()
