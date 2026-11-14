@@ -63,7 +63,7 @@ dev_env() {
             echo "# Written by scripts/devkeys.sh from $keys. Private: never commit."
             echo "SANCTUARY_REALM_CERT=$(pem "$keys/gateway.crt")"
             echo "SANCTUARY_REALM_KEY=$(pem "$keys/gateway.key")"
-            echo "SANCTUARY_REALM_PINS=$(cat "$keys/realm-stub.pin")"
+            echo "SANCTUARY_REALM_PINS=stub=$(cat "$keys/realm-stub.pin")"
         } >"$dir/gateway.env"
         {
             echo "# Written by scripts/devkeys.sh from $keys. Private: never commit."

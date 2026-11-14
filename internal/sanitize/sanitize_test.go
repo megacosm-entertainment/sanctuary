@@ -133,3 +133,19 @@ func FuzzServer(f *testing.F) {
 		}
 	})
 }
+
+// RT-3-2: a line of invalid bytes grows threefold when cleaned; the cap
+// must hold after cleaning, at a character boundary.
+func TestUntrustedLineCapsAfterCleaning(t *testing.T) {
+	in := strings.Repeat("\x80", 3000) // 3000 invalid bytes → 9000 bytes of U+FFFD
+	got := UntrustedLine(in, 4096)
+	if len(got) > 4096 {
+		t.Fatalf("UntrustedLine = %d bytes, want at most 4096", len(got))
+	}
+	if !utf8.ValidString(got) || len(got) != 4095 { // 1365 whole U+FFFD
+		t.Fatalf("UntrustedLine = %d bytes (valid %v), want 4095 bytes of whole characters", len(got), utf8.ValidString(got))
+	}
+	if UntrustedLine("short", 4096) != "short" {
+		t.Fatal("UntrustedLine changed a short clean line")
+	}
+}

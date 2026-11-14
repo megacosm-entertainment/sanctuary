@@ -183,3 +183,20 @@ func stringBodyLen(s string) int {
 	}
 	return len(s)
 }
+
+// UntrustedLine cleans one line of untrusted input with Untrusted and then
+// caps it at max bytes, cutting at a character boundary. Cleaning comes
+// first because it can lengthen text (an invalid byte becomes the 3-byte
+// U+FFFD): capping first let a 4096-byte line clean to 12288 bytes, which
+// the realm protocol then refused (RT-3-2).
+func UntrustedLine(s string, max int) string {
+	s = Untrusted(s)
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}

@@ -200,8 +200,11 @@ func (h Handler) relay(ctx context.Context, s *session.Session, in *input, r *Re
 			// player's reads, and one player's input cannot hold up anyone
 			// else's.
 			switch err := r.w.Send(m); {
-			case err == nil, errors.Is(err, realmproto.ErrInvalidField):
-				// sent, or dropped (e.g. GMCP over the protocol's cap)
+			case err == nil:
+			case errors.Is(err, realmproto.ErrInvalidField):
+				// Not silently (RT-3-2): say which kind and why (validation
+				// errors name the field, never its content: player text or GMCP).
+				log.Warn("input not forwarded to the realm: over the protocol's limits", "type", m.Type(), "err", err)
 			case errors.Is(err, realmproto.ErrSessionBacklog):
 				leave(realmproto.ClosedOverflow, "input backlog")
 				return ended

@@ -77,7 +77,7 @@ set_plain "$gw_project" \
     SANCTUARY_LOG_LEVEL="$level" \
     SANCTUARY_STUB_REALM=false \
     SANCTUARY_REALM_LISTEN="$gw_listen" \
-    SANCTUARY_REALM_PINS="$(cat "$keys/realm-stub.pin")" \
+    SANCTUARY_REALM_PINS="stub=$(cat "$keys/realm-stub.pin")" \
     "${publish[@]+"${publish[@]}"}"
 set_file "$gw_project" SANCTUARY_REALM_CERT "$keys/gateway.crt"
 set_file "$gw_project" SANCTUARY_REALM_KEY "$keys/gateway.key"

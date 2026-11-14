@@ -111,9 +111,19 @@ func (h *Hub) notify() {
 // ErrRealmProtocol wraps a realm message that breaks the protocol.
 var ErrRealmProtocol = errors.New("proxy: protocol violation by realm")
 
-// Serve runs one realm link: the handshake, then relaying until the link
-// ends or ctx is cancelled (gateway shutdown). It closes c before returning.
+// Serve runs one realm link that may register as any realm id: only for
+// links that nothing outside this process can open (the in-process stub
+// realm over realmproto.Pipe). Network links use ServeAs, via ServeListener.
 func (h *Hub) Serve(ctx context.Context, c *realmproto.Conn) error {
+	return h.ServeAs(ctx, c, nil)
+}
+
+// ServeAs runs one realm link: the handshake, then relaying until the link
+// ends or ctx is cancelled (gateway shutdown). allowed says which realm ids
+// the connected key may register as (realmproto.RealmIDs); a hello for any
+// other id is rejected (RT-3-1). nil allows any id. It closes c before
+// returning.
+func (h *Hub) ServeAs(ctx context.Context, c *realmproto.Conn, allowed func(id string) bool) error {
 	w := realmproto.NewWriter(c, h.cfg.Writer)
 	defer func() {
 		c.Close()
@@ -121,7 +131,7 @@ func (h *Hub) Serve(ctx context.Context, c *realmproto.Conn) error {
 	}()
 	// During the handshake, cancelling just closes the link.
 	stop := context.AfterFunc(ctx, func() { c.Close() })
-	r, err := h.handshake(c, w)
+	r, err := h.handshake(c, w, allowed)
 	stop()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -165,7 +175,7 @@ func (h *Hub) Serve(ctx context.Context, c *realmproto.Conn) error {
 	return err
 }
 
-func (h *Hub) handshake(c *realmproto.Conn, w *realmproto.Writer) (*Realm, error) {
+func (h *Hub) handshake(c *realmproto.Conn, w *realmproto.Writer, allowed func(string) bool) (*Realm, error) {
 	c.SetReadDeadline(time.Now().Add(h.cfg.HandshakeTimeout))
 	m, err := c.RecvLimit(realmproto.MaxHello)
 	c.SetReadDeadline(time.Time{})
@@ -192,6 +202,11 @@ func (h *Hub) handshake(c *realmproto.Conn, w *realmproto.Writer) (*Realm, error
 	}
 	if !slices.Contains(hello.Versions, realmproto.Version) {
 		return reject(realmproto.RejectUnsupportedVersion, fmt.Errorf("realm offers %v", hello.Versions))
+	}
+	if allowed != nil && !allowed(hello.Realm) {
+		// A trusted key is not enough: it must be the key for this realm,
+		// or one realm could take over another's players (RT-3-1).
+		return reject(realmproto.RejectNotAllowed, fmt.Errorf("this key may not register as realm %q", hello.Realm))
 	}
 
 	r := &Realm{

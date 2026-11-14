@@ -195,6 +195,8 @@ func TestDecodeRejects(t *testing.T) {
 		{"hello without versions", realmproto.FromRealm, `{"type":"hello","realm":"live"}`, realmproto.ErrInvalidField},
 		{"hello version zero", realmproto.FromRealm, `{"type":"hello","versions":[0],"realm":"live"}`, realmproto.ErrInvalidField},
 		{"hello realm with spaces", realmproto.FromRealm, `{"type":"hello","versions":[1],"realm":"my realm"}`, realmproto.ErrInvalidField},
+		// protocol.md §4: a realm id is 1-32 characters.
+		{"hello realm id of 33", realmproto.FromRealm, `{"type":"hello","versions":[1],"realm":"` + strings.Repeat("a", 33) + `"}`, realmproto.ErrInvalidField},
 		{"hello name too long", realmproto.FromRealm, `{"type":"hello","versions":[1],"realm":"live","name":"` + long + `"}`, realmproto.ErrInvalidField},
 		{"input too long", realmproto.FromGateway, `{"type":"input","session":1,"text":"` + strings.Repeat("a", realmproto.MaxInput+1) + `"}`, realmproto.ErrInvalidField},
 		{"gmcp bad package", realmproto.FromRealm, `{"type":"gmcp","session":1,"package":"Bad Name"}`, realmproto.ErrInvalidField},

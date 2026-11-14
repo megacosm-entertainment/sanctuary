@@ -69,12 +69,28 @@ bytes   payload   one JSON object, UTF-8
   With neither configured, the side refuses to start: an empty trust is
   never "accept everyone". Identities for pinning are made with
   `-gen-identity PREFIX` (writes `PREFIX.crt`, `.key` with mode 0600, and
-  `.pin`, and never overwrites).
+  `.pin`, and never overwrites). Pins are compared in canonical base64.
+- **A key may register only as its own realm.** Trust in a key is not trust
+  in whatever realm id it claims: otherwise one trusted realm could register
+  as another while that one is down, and be handed its held players and
+  what they type next (red team RT-3-1). So on the gateway:
+  - every pin names the realm its key is for: `id=sha256/...`
+    (`SANCTUARY_REALM_PINS=live=sha256/...,stub=sha256/...`; a pin with no
+    id is refused at startup);
+  - a CA-issued realm certificate may register as its Common Name or one of
+    its DNS names (a realm id is a valid DNS label), and as nothing else.
+    This applies only to certificates that chain to the configured CA; a
+    pinned self-signed key gains nothing from its own subject.
+
+  A hello for any other id is answered `reject` with `not-allowed`. The
+  realm side pins one gateway, so its pins carry no id.
 - **Authenticate before allocating.** Until the TLS handshake completes, a
   connection holds only a pending slot: no protocol buffers, no writer.
   The handshake has 5 seconds; at most 16 may be in progress at once;
-  each source address may make 30 attempts a minute. The number of
-  registered realms is capped (32).
+  each source (an IPv4 address, or an IPv6 /64) may make 30 attempts a
+  minute, and at most 4096 sources are tracked, new ones being refused
+  while the table is full of recent ones. The number of registered realms
+  is capped (32).
 - **In-memory transport** for tests and same-process use: the same frames
   over an in-process pipe, with no TLS because nothing leaves the process.
 
@@ -107,7 +123,7 @@ The gateway answers with one of:
 ```
 
 and closes the link after a `reject`. Reasons: `unsupported-version`,
-`duplicate-realm`, `bad-hello`, `too-many-realms`. A realm that receives a
+`duplicate-realm`, `bad-hello`, `too-many-realms`, `not-allowed` (§3). A realm that receives a
 `reject` backs off (§8) rather than reconnecting at once.
 
 The hello must arrive within 5 seconds of TLS completing and be at most

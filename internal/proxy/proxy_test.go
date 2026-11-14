@@ -532,3 +532,76 @@ func TestHeldPlayerWaitsForTheirRealm(t *testing.T) {
 		t.Fatal("realm other received something before its pong: the held player was moved to it")
 	}
 }
+
+// ── Contract details (red team round 3, RT-3-7) ──────────────
+
+// Prompts are realm output too, and are cleaned like text.
+func TestRealmPromptSanitised(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, open := player(t, h, realm, proxy.Handler{})
+	realm.Send(&realmproto.Prompt{Session: open.Session, Text: "\x1b]0;pwned\x07\x1b[32m>\x1b[0m "})
+	if pr := sessiontest.ExpectNext[session.Prompt](p); pr.Text != "\x1b[32m>\x1b[0m " {
+		t.Fatalf("prompt = %q, want colour kept and the title removed", pr.Text)
+	}
+}
+
+// The first message is capped at 4 KiB (protocol.md §4): before the hello
+// a peer has proved nothing beyond holding a trusted key.
+func TestHelloOverCapRejected(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm, done := h.connect(t)
+	pad := strings.Repeat("x", realmproto.MaxHello) // an ignored field, to make it big
+	// In the background: the hub refuses after reading only the header and
+	// closes the link, so over net.Pipe the rest of this write fails.
+	go realm.Conn.SendRaw([]byte(`{"type":"hello","versions":[1],"realm":"live","pad":"` + pad + `"}`))
+	if rej := rpt.Expect[*realmproto.Reject](realm); rej.Reason != realmproto.RejectBadHello {
+		t.Fatalf("oversize hello: reject %q, want %q", rej.Reason, realmproto.RejectBadHello)
+	}
+	if err := waitErr(t, done); err == nil {
+		t.Fatal("Serve after an oversize hello = nil, want an error")
+	}
+}
+
+// A realm's name and build are untrusted display text.
+func TestRealmNameSanitised(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm, _ := h.connect(t)
+	realm.Send(&realmproto.Hello{Versions: []int{realmproto.Version}, Realm: "live", Name: "\x1b]0;x\x07Evil‮", Build: "\x1b[2Jb1"})
+	rpt.Expect[*realmproto.Welcome](realm)
+	got := h.Realms()
+	if len(got) != 1 || got[0].Name != "Evil" || got[0].Build != "b1" {
+		t.Fatalf("Realms() = %+v, want name Evil and build b1 with controls removed", got)
+	}
+}
+
+// The realm is told why each player left (protocol.md §5).
+func TestCloseReasonShutdown(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, open := player(t, h, realm, proxy.Handler{})
+	p.Shutdown()
+	c := rpt.Until[*realmproto.SessionClosed](realm, nil)
+	if c.Session != open.Session || c.Reason != realmproto.ClosedShutdown {
+		t.Fatalf("session.closed = %+v, want reason %q", c, realmproto.ClosedShutdown)
+	}
+}
+
+func TestCloseReasonOverflow(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	// A player whose client reads nothing, with a small outbound budget.
+	p := sessiontest.New(t, proxy.Handler{Hub: h.Hub}, sessiontest.Options{
+		OutBuffer: 1,
+		Policy:    session.QueuePolicy{MaxBytes: 4096, MaxMessages: 64, GMCPSoftBytes: 1024, DrainTimeout: time.Second},
+	})
+	open := rpt.Expect[*realmproto.SessionOpen](realm)
+	for i := 0; i < 20; i++ {
+		realm.Send(&realmproto.Text{Session: open.Session, Text: strings.Repeat("x", 1000) + "\n"})
+	}
+	c := rpt.Until[*realmproto.SessionClosed](realm, nil)
+	if c.Session != open.Session || c.Reason != realmproto.ClosedOverflow {
+		t.Fatalf("session.closed = %+v, want reason %q", c, realmproto.ClosedOverflow)
+	}
+	p.ExpectClosed()
+}

@@ -64,7 +64,7 @@ compose runs.
 
 | Project | Configs | Holds |
 | --- | --- | --- |
-| `sanctuary-gateway` | `dev`, `stg` | `SANCTUARY_REALM_LISTEN`, `REALM_CERT`, `REALM_KEY`, `REALM_PINS`, `STUB_REALM`, `LOG_LEVEL` |
+| `sanctuary-gateway` | `dev`, `stg` | `SANCTUARY_REALM_LISTEN`, `REALM_CERT`, `REALM_KEY`, `REALM_PINS` (`stub=sha256/...`), `STUB_REALM`, `LOG_LEVEL`; `PUBLISH_*` in `stg` |
 | `sanctuary-stub-realm` | `dev`, `stg` | `SANCTUARY_GATEWAY`, `GATEWAY_PINS`, `CERT`, `KEY`, `ID`, `NAME`, `LOG_LEVEL` |
 
 Separate projects because the two programs share setting names (`NAME`,
@@ -92,11 +92,14 @@ shows `[secret]`.
 
 `scripts/devkeys.sh` makes a pinned identity for the gateway and for the
 stub realm, in `.dev/keys` (git-ignored). Each side trusts the other's
-public-key pin (`*.pin`). For a real deployment, either make identities on
+public-key pin (`*.pin`). On the gateway each realm pin also names the
+realm its key is for (`SANCTUARY_REALM_PINS=stub=sha256/...`): a key may
+register only as its own realm (protocol.md §3). For a real deployment, either make identities on
 each host with `-gen-identity PREFIX` and exchange the pins, or issue
 certificates from a CA (cert-manager, for example) and set
-`SANCTUARY_REALM_CA` on the gateway and `SANCTUARY_GATEWAY_CA` on realms;
-pins and a CA may be used together.
+`SANCTUARY_REALM_CA` on the gateway and `SANCTUARY_GATEWAY_CA` on realms
+(a CA-issued realm may register only as its certificate's Common Name or
+a DNS name); pins and a CA may be used together.
 
 
 ## Realms on other hosts

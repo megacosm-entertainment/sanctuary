@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -47,7 +48,10 @@ func ParsePin(s string) (string, error) {
 	if err != nil || len(raw) != sha256.Size {
 		return "", fmt.Errorf("realmproto: pin %q is not a base64 SHA-256", s)
 	}
-	return s, nil
+	// Re-encode: base64 can spell the same bytes more than one way (the
+	// unused bits of the last character), and pins are compared as text
+	// (RT-3-5).
+	return PinPrefix + base64.StdEncoding.EncodeToString(raw), nil
 }
 
 // Trust says which peers to accept.
@@ -250,4 +254,103 @@ func ReadPins(values []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ── Binding realm ids to keys (RT-3-1) ──────────────────────
+
+// RealmPins binds pins to the realm ids their keys may register as: a
+// trusted key is not enough, it must also be the key for the id it claims.
+// Keyed by pin; each pin may serve one or more ids.
+type RealmPins map[string]map[string]bool
+
+// Pins lists the pins, for Trust.
+func (rp RealmPins) Pins() []string {
+	out := make([]string, 0, len(rp))
+	for p := range rp {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ParseRealmPins reads bindings of the form id=sha256/..., given literally
+// or in files (one per line, '#' comments allowed). A pin without an id is
+// refused: on the gateway, every trusted key must say which realm it is.
+func ParseRealmPins(values []string) (RealmPins, error) {
+	rp := RealmPins{}
+	add := func(entry, where string) error {
+		id, pin, ok := strings.Cut(strings.TrimSpace(entry), "=")
+		if !ok || strings.HasPrefix(entry, PinPrefix) {
+			return fmt.Errorf("realmproto: %s%q: realm pins are id=%s..., naming the realm the key may register as", where, entry, PinPrefix)
+		}
+		if !realmID(id) {
+			return fmt.Errorf("realmproto: %s%q: %q is not a realm id (1-32 of [a-z0-9-])", where, entry, id)
+		}
+		norm, err := ParsePin(pin)
+		if err != nil {
+			return err
+		}
+		if rp[norm] == nil {
+			rp[norm] = map[string]bool{}
+		}
+		rp[norm][id] = true
+		return nil
+	}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if strings.Contains(v, "="+PinPrefix) || strings.HasPrefix(v, PinPrefix) {
+			if err := add(v, ""); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		b, err := os.ReadFile(v)
+		if err != nil {
+			return nil, fmt.Errorf("realmproto: %q is neither id=pin nor a readable file of them: %w", v, err)
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			line, _, _ = strings.Cut(line, "#")
+			if line = strings.TrimSpace(line); line == "" {
+				continue
+			}
+			if err := add(line, v+": "); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return rp, nil
+}
+
+// RealmIDs returns which realm ids the peer of a completed handshake may
+// register as: the ids its pinned key is bound to, and, when cas is set and
+// its certificate chains to one of them for client authentication, its
+// Common Name and DNS names (a realm id is a valid DNS label). CA ids count
+// only for a certificate that actually verifies against cas, so a pinned
+// self-signed key cannot claim ids through its own subject.
+func RealmIDs(cs tls.ConnectionState, pins RealmPins, cas *x509.CertPool) func(id string) bool {
+	if len(cs.PeerCertificates) == 0 {
+		return func(string) bool { return false }
+	}
+	leaf := cs.PeerCertificates[0]
+	pinned := pins[Pin(leaf)]
+	var fromCA map[string]bool
+	if cas != nil {
+		inter := x509.NewCertPool()
+		for _, c := range cs.PeerCertificates[1:] {
+			inter.AddCert(c)
+		}
+		if _, err := leaf.Verify(x509.VerifyOptions{
+			Roots: cas, Intermediates: inter,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		}); err == nil {
+			fromCA = map[string]bool{leaf.Subject.CommonName: true}
+			for _, n := range leaf.DNSNames {
+				fromCA[n] = true
+			}
+		}
+	}
+	return func(id string) bool { return pinned[id] || fromCA[id] }
 }

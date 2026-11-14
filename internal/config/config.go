@@ -176,6 +176,11 @@ func (b Blob) Bytes() ([]byte, error) {
 	}
 	data, err := os.ReadFile(b.st.raw)
 	if err != nil {
+		var pe *os.PathError
+		if b.st.secret && errors.As(err, &pe) {
+			// Report why, not where: the "path" may be a pasted secret.
+			return nil, fmt.Errorf("config: %s: cannot read the file given: %w", b.st.name, pe.Err)
+		}
 		return nil, fmt.Errorf("config: %s: %w", b.st.name, err)
 	}
 	return data, nil
@@ -248,6 +253,11 @@ func (s *Set) Parse(args []string, env func(string) (string, bool)) error {
 		}
 		if err := s.resolve(st, file, env); err != nil {
 			return err
+		}
+	}
+	for _, st := range s.settings {
+		if st.kind == kindBlob && st.secret && st.isPath && looksLikeContent(st.raw) {
+			return fmt.Errorf("config: %s: the value given as a path looks like the secret itself; give a path (-%s or %s%s_FILE), or the content in the environment as %s%s. The value is not shown", st.name, flagName(st.name), Prefix, st.name, Prefix, st.name)
 		}
 	}
 	return nil
@@ -329,6 +339,10 @@ func (s *Set) Effective() []Entry {
 		switch {
 		case st.kind == kindBlob && st.raw == "":
 			v = ""
+		case st.kind == kindBlob && st.isPath && st.secret:
+			// Not even the path: if someone pasted the secret where the
+			// path goes, this is where it would leak (RT-3-3).
+			v = "[file]"
 		case st.kind == kindBlob && st.isPath:
 			v = "file " + st.raw
 		case st.kind == kindBlob && st.secret:
@@ -445,4 +459,10 @@ func closesQuote(v string) bool {
 		bs++
 	}
 	return bs%2 == 0
+}
+
+// looksLikeContent reports whether a "path" is really file content: a PEM
+// block or anything with a line break, which no sensible path contains.
+func looksLikeContent(s string) bool {
+	return strings.Contains(s, "-----BEGIN") || strings.ContainsAny(s, "\r\n")
 }

@@ -48,6 +48,10 @@ func NewRealm(t testing.TB) (*Peer, *realmproto.Conn) {
 	return start(t, realm), gw
 }
 
+// Start makes a Peer of any link end, a real mTLS connection included, for
+// tests that dial the realm port.
+func Start(t testing.TB, c *realmproto.Conn) *Peer { return start(t, c) }
+
 func start(t testing.TB, c *realmproto.Conn) *Peer {
 	p := &Peer{T: t, Conn: c, msgs: make(chan result, 256)}
 	go func() {

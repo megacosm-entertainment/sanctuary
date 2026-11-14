@@ -37,7 +37,7 @@ dev_keys "$work/keys"
     -telnet 127.0.0.1:19000 -telnets 127.0.0.1:19010 -ws 127.0.0.1:19020 \
     -realm-listen 127.0.0.1:19030 \
     -realm-cert "$work/keys/gateway.crt" -realm-key "$work/keys/gateway.key" \
-    -realm-pins "$work/keys/realm-stub.pin" \
+    -realm-pins "stub=$(cat "$work/keys/realm-stub.pin")" \
     >"$log" 2>&1 &
 gw=$!
 realm=

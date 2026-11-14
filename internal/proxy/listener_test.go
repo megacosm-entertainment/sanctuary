@@ -28,7 +28,10 @@ func linkIdentity(t *testing.T, name string) (tls.Certificate, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leaf, _ := x509.ParseCertificate(c.Certificate[0])
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	return c, realmproto.Pin(leaf)
 }
 
@@ -40,15 +43,21 @@ type listening struct {
 	done  chan error
 }
 
-func listen(t *testing.T, realmPins []string, lc proxy.ListenerConfig) *listening {
+// listen serves a realm port trusting the given id=pin bindings (and
+// lc.CAs, if set).
+func listen(t *testing.T, bindings []string, lc proxy.ListenerConfig) *listening {
 	t.Helper()
 	h := newHub(t, proxy.HubConfig{})
 	gwID, gwPin := linkIdentity(t, "gateway")
-	conf, err := realmproto.ServerTLS(gwID, realmproto.Trust{Pins: realmPins})
+	bound, err := realmproto.ParseRealmPins(bindings)
+	if err != nil {
+		t.Fatalf("ParseRealmPins: %v", err)
+	}
+	conf, err := realmproto.ServerTLS(gwID, realmproto.Trust{Pins: bound.Pins(), CAs: lc.CAs})
 	if err != nil {
 		t.Fatalf("ServerTLS: %v", err)
 	}
-	lc.TLS = conf
+	lc.TLS, lc.Realms = conf, bound
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -102,7 +111,7 @@ func waitRegistered(t *testing.T, h *hub, id string) {
 // registers, and serves a player.
 func TestRealmOverMTLSServesPlayers(t *testing.T) {
 	realmID, realmPin := linkIdentity(t, "realm")
-	ls := listen(t, []string{realmPin}, proxy.ListenerConfig{})
+	ls := listen(t, []string{"live=" + realmPin}, proxy.ListenerConfig{})
 	runRealm(t, ls, realmID, "live")
 	waitRegistered(t, ls.hub, "live")
 
@@ -120,7 +129,7 @@ func TestRealmOverMTLSServesPlayers(t *testing.T) {
 // slot only until the handshake timeout.
 func TestHandshakeTimeoutFreesSlot(t *testing.T) {
 	_, pin := linkIdentity(t, "realm")
-	ls := listen(t, []string{pin}, proxy.ListenerConfig{HandshakeTimeout: 100 * time.Millisecond})
+	ls := listen(t, []string{"live=" + pin}, proxy.ListenerConfig{HandshakeTimeout: 100 * time.Millisecond})
 	c, err := net.Dial("tcp", ls.addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -151,7 +160,7 @@ func closedQuickly(t *testing.T, c net.Conn) bool {
 
 func TestPendingHandshakesCapped(t *testing.T) {
 	_, pin := linkIdentity(t, "realm")
-	ls := listen(t, []string{pin}, proxy.ListenerConfig{MaxPending: 2, HandshakeTimeout: 10 * time.Second})
+	ls := listen(t, []string{"live=" + pin}, proxy.ListenerConfig{MaxPending: 2, HandshakeTimeout: 10 * time.Second})
 	var held []net.Conn
 	t.Cleanup(func() {
 		for _, c := range held {
@@ -191,7 +200,7 @@ func TestPendingHandshakesCapped(t *testing.T) {
 
 func TestPerSourceRateLimit(t *testing.T) {
 	_, pin := linkIdentity(t, "realm")
-	ls := listen(t, []string{pin}, proxy.ListenerConfig{PerSourcePerMinute: 2, HandshakeTimeout: 10 * time.Second})
+	ls := listen(t, []string{"live=" + pin}, proxy.ListenerConfig{PerSourcePerMinute: 2, HandshakeTimeout: 10 * time.Second})
 	var conns []net.Conn
 	t.Cleanup(func() {
 		for _, c := range conns {
@@ -242,8 +251,11 @@ func TestListenerRefusesNonMTLSConfig(t *testing.T) {
 func TestUntrustedRealmNeverRegisters(t *testing.T) {
 	_, pinnedPin := linkIdentity(t, "the realm we expect")
 	stranger, _ := linkIdentity(t, "stranger")
-	ls := listen(t, []string{pinnedPin}, proxy.ListenerConfig{})
-	conf, _ := realmproto.ClientTLS(stranger, realmproto.Trust{Pins: []string{ls.gwPin}}, "gateway")
+	ls := listen(t, []string{"live=" + pinnedPin}, proxy.ListenerConfig{})
+	conf, err := realmproto.ClientTLS(stranger, realmproto.Trust{Pins: []string{ls.gwPin}}, "gateway")
+	if err != nil {
+		t.Fatalf("ClientTLS: %v", err)
+	}
 	attempt := make(chan error, 1)
 	go func() {
 		c, err := realm.TLSDialer(ls.addr, conf, time.Second)(context.Background())
@@ -267,5 +279,96 @@ func TestUntrustedRealmNeverRegisters(t *testing.T) {
 	// the gateway refused it: now the absence is meaningful.
 	if got := ls.Realms(); len(got) != 0 {
 		t.Fatalf("realms after an untrusted connection = %+v, want none", got)
+	}
+}
+
+// ── Realm ids are bound to keys (RT-3-1) ─────────────────────
+
+// dialAs dials the realm port with identity id, sends a hello for realmID,
+// and returns the link and the gateway's answer (welcome or reject).
+func dialAs(t *testing.T, ls *listening, id tls.Certificate, realmID string) (*realmproto.Conn, realmproto.Message) {
+	t.Helper()
+	conf, err := realmproto.ClientTLS(id, realmproto.Trust{Pins: []string{ls.gwPin}}, "gateway")
+	if err != nil {
+		t.Fatalf("ClientTLS: %v", err)
+	}
+	c, err := realm.TLSDialer(ls.addr, conf, rpt.Timeout)(context.Background())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	if err := c.Send(&realmproto.Hello{Versions: []int{realmproto.Version}, Realm: realmID}); err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+	c.SetReadDeadline(time.Now().Add(rpt.Timeout))
+	m, err := c.Recv()
+	if err != nil {
+		t.Fatalf("waiting for the gateway's answer: %v", err)
+	}
+	return c, m
+}
+
+// Two trusted keys, live's and staging's. While live is down with players
+// held for it, staging's key claims to be live: it must be refused, or it
+// would be handed live's players and what they type next.
+func TestRealmCannotRegisterAsAnotherRealm(t *testing.T) {
+	liveID, livePin := linkIdentity(t, "live realm")
+	stagingID, stagingPin := linkIdentity(t, "staging realm")
+	ls := listen(t, []string{"live=" + livePin, "staging=" + stagingPin}, proxy.ListenerConfig{})
+
+	live, ans := dialAs(t, ls, liveID, "live")
+	if _, ok := ans.(*realmproto.Welcome); !ok {
+		t.Fatalf("live's own key registering as live got %+v, want welcome", ans)
+	}
+	p := sessiontest.New(t, proxy.Handler{Hub: ls.Hub, Realm: "live", Hold: rpt.Timeout})
+	gw := rpt.Start(t, live)
+	rpt.Expect[*realmproto.SessionOpen](gw)
+	live.Close() // live goes down; its player is held
+	p.ExpectText("unavailable for the moment")
+
+	_, ans = dialAs(t, ls, stagingID, "live")
+	rej, ok := ans.(*realmproto.Reject)
+	if !ok || rej.Reason != realmproto.RejectNotAllowed {
+		t.Fatalf("staging's key registering as live got %+v, want reject %q", ans, realmproto.RejectNotAllowed)
+	}
+	if got := ls.Realms(); len(got) != 0 {
+		t.Fatalf("realms after the refused claim = %+v, want none", got)
+	}
+	// Staging's key can still be staging.
+	if _, ans := dialAs(t, ls, stagingID, "staging"); !isWelcome(ans) {
+		t.Fatalf("staging's key registering as staging got %+v, want welcome", ans)
+	}
+}
+
+func isWelcome(m realmproto.Message) bool { _, ok := m.(*realmproto.Welcome); return ok }
+
+// A bare pin, with no realm named, is refused when the gateway starts.
+func TestUnboundPinRefused(t *testing.T) {
+	_, pin := linkIdentity(t, "realm")
+	if _, err := realmproto.ParseRealmPins([]string{pin}); err == nil {
+		t.Fatal("ParseRealmPins accepted a pin with no realm id")
+	}
+	for _, bad := range []string{"Live=" + pin, "a b=" + pin, "=" + pin, "live=sha256/short"} {
+		if _, err := realmproto.ParseRealmPins([]string{bad}); err == nil {
+			t.Errorf("ParseRealmPins(%q) accepted", bad)
+		}
+	}
+}
+
+func TestListenerRefusesNoBindings(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	gwID, _ := linkIdentity(t, "gateway")
+	_, pin := linkIdentity(t, "realm")
+	conf, err := realmproto.ServerTLS(gwID, realmproto.Trust{Pins: []string{pin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := h.ServeListener(h.ctx, l, proxy.ListenerConfig{TLS: conf}); err == nil {
+		t.Fatal("ServeListener with trust but no realm bindings = nil, want a refusal")
 	}
 }

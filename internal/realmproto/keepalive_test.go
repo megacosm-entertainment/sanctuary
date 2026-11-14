@@ -12,8 +12,10 @@ import (
 // Test timings: short, but far enough apart that scheduling noise under
 // -race cannot turn one into the other.
 const (
-	kaIdle  = 40 * time.Millisecond
-	kaGrace = 40 * time.Millisecond
+	// Grace differs from Idle, so a test can tell which one was waited
+	// after the ping (protocol.md §8: 30 s idle, then 10 s for an answer).
+	kaIdle  = 30 * time.Millisecond
+	kaGrace = 120 * time.Millisecond
 )
 
 // keepaliveLink returns the realm end with a keepalive reader, and the raw

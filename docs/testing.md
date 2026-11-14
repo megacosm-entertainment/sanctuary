@@ -14,7 +14,7 @@ Each wire protocol and each layer has one test client or harness. Use it. If it 
 | Act as a telnet MUD client (negotiation, MTTS, MNES, MCCP2) | `telnettest.Client` with a `Profile` | `internal/telnet/telnettest` |
 | Act as a WebSocket client (handshake, masked frames, close codes) | `wstest.Client` | `internal/websocket/wstest` |
 | Print telnet bytes readably in a failure message | `telnet.Describe` | `internal/telnet/describe.go` |
-| Play the gateway or a realm on a realm link | `realmprototest.Peer` (`NewGateway`, `NewRealm`, `Expect`, `Until`, `TextFor`) | `internal/realmproto/realmprototest` |
+| Play the gateway or a realm on a realm link | `realmprototest.Peer` (`NewGateway`, `NewRealm`, `Start` for a real mTLS link, `Expect`, `Until`, `TextFor`) | `internal/realmproto/realmprototest` |
 | Run a whole gateway on loopback ports | `startGateway(t, mods...)` | `internal/gateway/gateway_test.go` |
 
 The telnet package's own unit tests can't import `telnettest` (it imports `telnet`), so they use the in-package fixture at the top of `conn_test.go`. Keep that fixture and `telnettest` consistent.

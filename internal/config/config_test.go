@@ -160,8 +160,9 @@ func TestPublicBlobContentAllowedInFile(t *testing.T) {
 	if err := s.Parse([]string{"-config", file(t, "SANCTUARY_REALM_CERT=\"-----BEGIN CERTIFICATE-----\\nabc\"\n")}, env(nil)); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if b, _ := cert.Bytes(); string(b) != "-----BEGIN CERTIFICATE-----\nabc" {
-		t.Fatalf("cert content = %q", b)
+	b, err := cert.Bytes()
+	if err != nil || string(b) != "-----BEGIN CERTIFICATE-----\nabc" {
+		t.Fatalf("cert content = %q, %v", b, err)
 	}
 }
 
@@ -185,8 +186,8 @@ func TestEffectiveHidesSecrets(t *testing.T) {
 				t.Errorf("REALM_KEY entry = %+v, want [secret] from env", e)
 			}
 		case "TLS_KEY":
-			if e.Value != "file /run/secrets/tls.key" {
-				t.Errorf("TLS_KEY entry = %+v, want the path shown", e)
+			if e.Value != "[file]" {
+				t.Errorf("TLS_KEY entry = %+v, want [file]: a secret's path is not shown either", e)
 			}
 		}
 	}
@@ -286,5 +287,44 @@ func TestParseEnvFileMultilineValue(t *testing.T) {
 	}
 	if _, err := config.ParseEnvFile(strings.NewReader("SANCTUARY_CERT=\"never closed\nSANCTUARY_X=1\n")); err == nil {
 		t.Fatal("a quote never closed was accepted")
+	}
+}
+
+// RT-3-3: a secret pasted where its path belongs (an easy slip:
+// -realm-key "$SANCTUARY_REALM_KEY") must not end up in a log or an error.
+func TestSecretPastedAsPathNeverShown(t *testing.T) {
+	const canary = "-----BEGIN PRIVATE KEY-----\nCANARY-SECRET\n-----END PRIVATE KEY-----"
+	for name, c := range map[string]struct {
+		args []string
+		env  map[string]string
+	}{
+		"flag":         {[]string{"-realm-key", canary}, nil},
+		"_FILE":        {nil, map[string]string{"SANCTUARY_REALM_KEY_FILE": canary}},
+		"one-line PEM": {[]string{"-realm-key", "-----BEGIN PRIVATE KEY----- CANARY-SECRET -----END PRIVATE KEY-----"}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := config.New("gw")
+			s.Blob("REALM_KEY", true, "key")
+			err := s.Parse(c.args, env(c.env))
+			if err == nil {
+				t.Fatal("Parse accepted key content as a path")
+			}
+			if strings.Contains(err.Error(), "CANARY") {
+				t.Fatalf("the error repeats the secret: %v", err)
+			}
+		})
+	}
+}
+
+// A secret's file that cannot be read is reported without its path.
+func TestSecretFileErrorOmitsPath(t *testing.T) {
+	s := config.New("gw")
+	key := s.Blob("REALM_KEY", true, "key")
+	if err := s.Parse([]string{"-realm-key", "/no/such/CANARY-PATH"}, env(nil)); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	_, err := key.Bytes()
+	if err == nil || strings.Contains(err.Error(), "CANARY") || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Bytes() = %v, want a not-exist error that does not repeat the path", err)
 	}
 }

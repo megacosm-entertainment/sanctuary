@@ -55,8 +55,8 @@ func declare() (*config.Set, settings) {
 		realmListen: s.String("REALM_LISTEN", "", "realm port, mTLS only, e.g. 127.0.0.1:9030 (empty disables); keep it off the internet"),
 		realmCert:   s.Blob("REALM_CERT", false, "gateway identity certificate for the realm port"),
 		realmKey:    s.Blob("REALM_KEY", true, "gateway identity key for the realm port"),
-		realmPins:   s.String("REALM_PINS", "", "comma-separated realm pins (sha256/...) or files of pins"),
-		realmCA:     s.Blob("REALM_CA", false, "CA bundle whose client certificates realms may present"),
+		realmPins:   s.String("REALM_PINS", "", "comma-separated id=sha256/... bindings: which realm each pinned key may register as (or files of them)"),
+		realmCA:     s.Blob("REALM_CA", false, "CA bundle for realm certificates; a CA-issued realm may register only as its certificate's Common Name or DNS name"),
 	}
 }
 
@@ -142,7 +142,7 @@ func main() {
 			if err != nil {
 				fail("realm port", err)
 			}
-			trust, err := cli.Trust(*o.realmPins, o.realmCA)
+			trust, bound, cas, err := cli.RealmTrust(*o.realmPins, o.realmCA)
 			if err != nil {
 				fail("realm port", err)
 			}
@@ -158,7 +158,7 @@ func main() {
 			background.Add(1)
 			go func() {
 				defer background.Done()
-				if err := hub.ServeListener(ctx, l, proxy.ListenerConfig{TLS: conf}); err != nil {
+				if err := hub.ServeListener(ctx, l, proxy.ListenerConfig{TLS: conf, Realms: bound, CAs: cas}); err != nil {
 					log.Error("realm listener stopped", "err", err)
 				}
 			}()

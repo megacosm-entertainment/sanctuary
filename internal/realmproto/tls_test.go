@@ -382,3 +382,83 @@ func TestReadPinsMixesLiteralsAndFiles(t *testing.T) {
 		t.Fatal("ReadPins accepted a missing file")
 	}
 }
+
+// ── Realm ids bound to keys (RT-3-1) ─────────────────────────
+
+func peer(t *testing.T, c tls.Certificate) tls.ConnectionState {
+	t.Helper()
+	var chain []*x509.Certificate
+	for _, der := range c.Certificate {
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chain = append(chain, cert)
+	}
+	return tls.ConnectionState{PeerCertificates: chain}
+}
+
+func TestRealmIDsFromPins(t *testing.T) {
+	live, livePin := identity(t, "live")
+	other, _ := identity(t, "other")
+	bound, err := realmproto.ParseRealmPins([]string{"live=" + livePin, "beta=" + livePin})
+	if err != nil {
+		t.Fatalf("ParseRealmPins: %v", err)
+	}
+	allowed := realmproto.RealmIDs(peer(t, live), bound, nil)
+	for id, want := range map[string]bool{"live": true, "beta": true, "stub": false} {
+		if allowed(id) != want {
+			t.Errorf("live's key may register as %q: %v, want %v", id, allowed(id), want)
+		}
+	}
+	if realmproto.RealmIDs(peer(t, other), bound, nil)("live") {
+		t.Error("an unbound key may register as live")
+	}
+}
+
+// A CA-issued certificate may register as its Common Name or a DNS name,
+// and nothing else. A pinned self-signed key gets nothing from its own
+// subject, even with a CA configured: nobody vouched for that name.
+func TestRealmIDsFromCA(t *testing.T) {
+	ca := newCA(t)
+	issued := ca.issue(t, "live", x509.ExtKeyUsageClientAuth, "live-b")
+	allowed := realmproto.RealmIDs(peer(t, issued), nil, ca.pool)
+	for id, want := range map[string]bool{"live": true, "live-b": true, "stub": false} {
+		if allowed(id) != want {
+			t.Errorf("CA-issued live may register as %q: %v, want %v", id, allowed(id), want)
+		}
+	}
+	serverOnly := ca.issue(t, "live", x509.ExtKeyUsageServerAuth)
+	if realmproto.RealmIDs(peer(t, serverOnly), nil, ca.pool)("live") {
+		t.Error("a server-auth-only certificate from the CA may register as a realm")
+	}
+	certPEM, keyPEM, err := realmproto.GenerateIdentity("live") // CN "live", self-signed
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realmproto.RealmIDs(peer(t, self), nil, ca.pool)("live") {
+		t.Error("a self-signed key with CN live may register as live because a CA is configured")
+	}
+}
+
+// Base64 can spell the same 32 bytes two ways (the unused low bits of the
+// last character); both must name the same key (RT-3-5).
+func TestParsePinCanonicalises(t *testing.T) {
+	_, good := identity(t, "x")
+	b := []byte(good)
+	last := b[len(b)-2] // the character before '='
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	i := strings.IndexByte(alphabet, last)
+	b[len(b)-2] = alphabet[i|1] // set an unused bit; the decoded bytes are unchanged
+	if string(b) == good {
+		b[len(b)-2] = alphabet[i&^1]
+	}
+	got, err := realmproto.ParsePin(string(b))
+	if err != nil || got != good {
+		t.Fatalf("ParsePin(%q) = %q, %v; want the canonical %q", b, got, err, good)
+	}
+}

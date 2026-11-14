@@ -605,3 +605,25 @@ func TestDrainDeadline(t *testing.T) {
 		t.Fatalf("drained after %v, want about the %v deadline", d, deadline)
 	}
 }
+
+// One oversize message from a handler is dropped; the link and the player
+// stay up (RT-3-7: without Encode's limit the writer would fail and close
+// the link for every player).
+func TestOversizeOutputDroppedNotFatal(t *testing.T) {
+	s := registered(t, func(c *realm.Config) {
+		c.Policy = session.QueuePolicy{MaxBytes: 1 << 20, MaxMessages: 64, GMCPSoftBytes: 1 << 10, DrainTimeout: time.Second}
+		c.Handler = session.HandlerFunc(func(ctx context.Context, sess *session.Session) {
+			sess.Send(session.Text{Text: strings.Repeat("x", realmproto.MaxFrame) + "\n"})
+			sess.Send(session.Text{Text: "after\n"})
+			select {
+			case <-ctx.Done():
+			case <-sess.Done():
+			}
+		})
+	})
+	s.gw.Send(&realmproto.SessionOpen{Session: 1, Transport: "telnet"})
+	if txt := rpt.Expect[*realmproto.Text](s.gw); txt.Text != "after\n" {
+		t.Fatalf("first output = %d bytes, want the oversize message dropped and \"after\" delivered", len(txt.Text))
+	}
+	s.sync(t) // the link is still up
+}

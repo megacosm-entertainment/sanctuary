@@ -90,6 +90,9 @@ const (
 	RejectDuplicateRealm     = "duplicate-realm"
 	RejectBadHello           = "bad-hello"
 	RejectTooManyRealms      = "too-many-realms"
+	// RejectNotAllowed: the key that connected is not bound to the realm id
+	// in the hello (RT-3-1).
+	RejectNotAllowed = "not-allowed"
 )
 
 // ── Sessions, gateway to realm (protocol.md §5) ─────────────

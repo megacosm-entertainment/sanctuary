@@ -331,7 +331,7 @@ func (c *Conn) emitLine() {
 	if c.lineOver {
 		c.log.Warn("input line truncated", "limit", MaxLine)
 	}
-	text := sanitize.Untrusted(string(c.line))
+	text := sanitize.UntrustedLine(string(c.line), MaxLine)
 	c.line = c.line[:0]
 	c.lineOver = false
 	c.pending = append(c.pending, session.Line{Text: text})

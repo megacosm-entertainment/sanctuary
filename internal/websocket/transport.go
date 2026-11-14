@@ -16,6 +16,9 @@ import (
 // GMCPTransport is the gmcp.mudstandards.org subprotocol as a
 // session.Transport: player text travels in binary frames (UTF-8 with ANSI
 // codes) and GMCP messages in text frames.
+// maxLine caps one line of input, as telnet.MaxLine does.
+const maxLine = 4096
+
 type GMCPTransport struct {
 	c       *Conn
 	meta    session.Meta
@@ -45,10 +48,9 @@ func (t *GMCPTransport) ReadEvent() (session.Inbound, error) {
 			s := strings.TrimRight(string(msg), "\r\n")
 			for _, ln := range strings.Split(s, "\n") {
 				ln = strings.TrimSuffix(ln, "\r")
-				if len(ln) > 4096 {
-					ln = ln[:4096]
-				}
-				t.pending = append(t.pending, session.Line{Text: sanitize.Untrusted(ln)})
+				// The same cap as telnet input (telnet.MaxLine and
+				// realmproto.MaxInput), applied after cleaning (RT-3-2).
+				t.pending = append(t.pending, session.Line{Text: sanitize.UntrustedLine(ln, maxLine)})
 			}
 		case OpText:
 			pkg, data, err := gmcp.Parse(msg)

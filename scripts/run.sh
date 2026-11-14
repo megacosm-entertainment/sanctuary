@@ -53,7 +53,7 @@ else
     ./bin/sanctuary-gateway -stub-realm=false \
         -realm-listen "$realm_addr" \
         -realm-cert "$keys/gateway.crt" -realm-key "$keys/gateway.key" \
-        -realm-pins "$keys/realm-stub.pin" \
+        -realm-pins "stub=$(cat "$keys/realm-stub.pin")" \
         "${args[@]+"${args[@]}"}" &
     gw=$!
     ./bin/sanctuary-realm -gateway "$realm_addr" \

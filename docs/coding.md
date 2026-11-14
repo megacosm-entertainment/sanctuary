@@ -24,6 +24,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Need | Use | Where |
 | --- | --- | --- |
 | Clean untrusted text before output (escapes, C1, bidi, bad UTF-8) | `sanitize.Untrusted` | `internal/sanitize` |
+| One line of untrusted input, cleaned then capped at a character boundary | `sanitize.UntrustedLine` | `internal/sanitize` |
 | Clean server output, keeping line breaks and SGR colour | `sanitize.Server` | `internal/sanitize` |
 | Fold text to plain ASCII for a client without UTF-8; decide whether it has UTF-8 | `charset.ASCII`, `session.ClientInfo.UTF8` | `internal/charset`, `internal/session/events.go` |
 | Parse or format a GMCP message, rejecting malformed JSON | `gmcp.Parse`, `gmcp.Format` | `internal/gmcp` |
@@ -45,6 +46,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Realm side of a link: handshake, players as `session.Transport`s | `realm.Serve` | `internal/realm` |
 | Keep a realm connected: dial over mTLS, reconnect with jittered backoff | `realm.Run`, `realm.TLSDialer`, `realm.Backoff` | `internal/realm/dial.go` |
 | Realm-link TLS: pinned keys and/or CA, identities, pin files | `realmproto.ServerTLS`, `ClientTLS`, `Trust`, `WriteIdentity`, `ReadPins` | `internal/realmproto/tls.go` |
+| Bind realm ids to keys; which ids a connected realm may claim | `realmproto.ParseRealmPins`, `RealmIDs`, `cli.RealmTrust` | `internal/realmproto/tls.go`, `internal/cli` |
 | Ping a quiet link, end a silent one | `realmproto.Keepalive`, `Conn.RecvIdle` | `internal/realmproto/keepalive.go` |
 | Gateway side of realm links; route a player to a realm | `proxy.Hub`, `proxy.Handler` | `internal/proxy` |
 | Realm port: handshake limits, per-source rate limiting | `proxy.Hub.ServeListener` | `internal/proxy/listener.go` |

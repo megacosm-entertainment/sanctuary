@@ -128,3 +128,28 @@ func SplitList(s string) []string {
 	}
 	return out
 }
+
+// RealmTrust is the gateway's trust in realms: bindings of realm ids to
+// pinned keys (id=sha256/..., literal or in files) and an optional CA whose
+// certificates may register as their Common Name or DNS names. It returns
+// the TLS trust (any bound key or the CA) and the bindings the listener
+// checks each hello against (RT-3-1).
+func RealmTrust(pins string, ca config.Blob) (realmproto.Trust, realmproto.RealmPins, *x509.CertPool, error) {
+	bound, err := realmproto.ParseRealmPins(strings.Split(pins, ","))
+	if err != nil {
+		return realmproto.Trust{}, nil, nil, err
+	}
+	t := realmproto.Trust{Pins: bound.Pins()}
+	if ca.Set() {
+		b, err := ca.Bytes()
+		if err != nil {
+			return realmproto.Trust{}, nil, nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(b) {
+			return realmproto.Trust{}, nil, nil, errors.New("CA bundle contains no certificates")
+		}
+		t.CAs = pool
+	}
+	return t, bound, t.CAs, nil
+}

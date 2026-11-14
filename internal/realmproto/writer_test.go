@@ -230,3 +230,38 @@ func frameSize(t *testing.T, m realmproto.Message) int {
 	}
 	return len(p) + 4 // the uint32 length header
 }
+
+// The gateway's session.closed for a player who overflowed must reach the
+// realm, or the realm keeps a ghost player (RT-3-7).
+func TestSessionClosedExemptFromSessionLimit(t *testing.T) {
+	const share = 2048
+	w, _ := stalled(t, realmproto.WriterLimits{SessionBytes: share, LinkBytes: 1 << 20})
+	closed := &realmproto.SessionClosed{Session: 1, Reason: realmproto.ClosedOverflow}
+	fill := &realmproto.Input{Session: 1}
+	fill.Text = strings.Repeat("x", share-frameSize(t, fill)-frameSize(t, closed)/2)
+	if err := sendQuickly(t, w, fill); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := sendQuickly(t, w, closed); err != nil {
+		t.Fatalf("Send(session.closed) for a full session = %v, want nil", err)
+	}
+}
+
+// An oversize message is the caller's error, not the link's: it is
+// refused at Send and the link stays up for everyone else (RT-3-7).
+func TestOversizeMessageRefusedNotFatal(t *testing.T) {
+	gw, realm := realmproto.Pipe()
+	w := realmproto.NewWriter(realm, realmproto.WriterLimits{SessionBytes: 4 << 20, LinkBytes: 8 << 20})
+	t.Cleanup(func() { gw.Close(); realm.Close(); w.Close() })
+	big := &realmproto.Text{Session: 1, Text: strings.Repeat("x", realmproto.MaxFrame)}
+	if err := w.Send(big); !errors.Is(err, realmproto.ErrFrameTooLarge) {
+		t.Fatalf("Send(oversize text) = %v, want ErrFrameTooLarge", err)
+	}
+	if err := w.Send(&realmproto.Pong{N: 4}); err != nil {
+		t.Fatalf("Send after an oversize message = %v, want nil", err)
+	}
+	m, err := gw.Recv()
+	if p, ok := m.(*realmproto.Pong); err != nil || !ok || p.N != 4 {
+		t.Fatalf("after an oversize message the peer got %+v, %v; want the pong", m, err)
+	}
+}

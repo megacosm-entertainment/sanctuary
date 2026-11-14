@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"net"
 	"sync"
@@ -17,6 +18,12 @@ type ListenerConfig struct {
 	// TLS must come from realmproto.ServerTLS: TLS 1.3, client certificate
 	// required and verified.
 	TLS *tls.Config
+	// Realms binds realm ids to pinned keys, and CAs (the same pool as in
+	// TLS, if any) lets a CA-issued certificate register as its Common Name
+	// or a DNS name. A key may register only as an id it is bound to
+	// (RT-3-1); at least one of the two must be set.
+	Realms realmproto.RealmPins
+	CAs    *x509.CertPool
 	// HandshakeTimeout bounds the TLS handshake; default 5s. Until it
 	// completes a connection holds nothing but a pending slot.
 	HandshakeTimeout time.Duration
@@ -48,6 +55,9 @@ func (h *Hub) ServeListener(ctx context.Context, l net.Listener, lc ListenerConf
 		// Refuse rather than serve a realm port anyone could register on.
 		return errors.New("proxy: realm listener needs a TLS config from realmproto.ServerTLS")
 	}
+	if len(lc.Realms) == 0 && lc.CAs == nil {
+		return errors.New("proxy: realm listener has no realm bindings (id=pin) and no CA: no realm could register")
+	}
 	lc = lc.withDefaults()
 	stop := context.AfterFunc(ctx, func() { l.Close() })
 	defer stop()
@@ -70,7 +80,7 @@ func (h *Hub) ServeListener(ctx context.Context, l net.Listener, lc ListenerConf
 			return err
 		}
 		host := remoteHost(nc)
-		if !limiter.allow(host) {
+		if !limiter.allow(sourceKey(host)) {
 			h.log.Warn("realm connection refused: rate limit", "remote", host)
 			nc.Close()
 			continue
@@ -91,7 +101,8 @@ func (h *Hub) ServeListener(ctx context.Context, l net.Listener, lc ListenerConf
 				return
 			}
 			conn := realmproto.NewConn(tc, realmproto.FromRealm)
-			if err := h.Serve(ctx, conn); err != nil && ctx.Err() == nil {
+			allowed := realmproto.RealmIDs(tc.ConnectionState(), lc.Realms, lc.CAs)
+			if err := h.ServeAs(ctx, conn, allowed); err != nil && ctx.Err() == nil {
 				h.log.Info("realm link closed", "remote", host, "err", err)
 			}
 		}()
@@ -120,18 +131,36 @@ func remoteHost(c net.Conn) string {
 	return host
 }
 
-// rateLimiter allows n events per window per key (a sliding log, which is
-// exact and cheap at the handful of sources a realm port sees).
+// sourceKey is what the rate limit counts by: the address, or for IPv6 its
+// /64, the usual allocation to one host or site, so one machine cannot
+// spread its attempts over 2^64 addresses (RT-3-4).
+func sourceKey(host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil || ip.To4() != nil {
+		return host
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// maxSources caps how many sources the rate limiter remembers.
+const maxSources = 4096
+
+// rateLimiter allows n events per window per key (a sliding log, exact and
+// cheap at the handful of sources a realm port should see). It remembers at
+// most max keys; when full of recent ones, a new key is refused until old
+// ones age out, which fails closed. Pruning the table is amortised, at most
+// 16 times a window, so one accept never scans it all (RT-3-4).
 type rateLimiter struct {
-	n      int
-	window time.Duration
-	mu     sync.Mutex
-	seen   map[string][]time.Time
-	now    func() time.Time
+	n, max    int
+	window    time.Duration
+	mu        sync.Mutex
+	seen      map[string][]time.Time
+	lastPrune time.Time
+	now       func() time.Time
 }
 
 func newRateLimiter(n int, window time.Duration) *rateLimiter {
-	return &rateLimiter{n: n, window: window, seen: map[string][]time.Time{}, now: time.Now}
+	return &rateLimiter{n: n, max: maxSources, window: window, seen: map[string][]time.Time{}, now: time.Now}
 }
 
 func (r *rateLimiter) allow(key string) bool {
@@ -139,7 +168,7 @@ func (r *rateLimiter) allow(key string) bool {
 	defer r.mu.Unlock()
 	now := r.now()
 	cutoff := now.Add(-r.window)
-	times := r.seen[key]
+	times, known := r.seen[key]
 	i := 0
 	for i < len(times) && !times[i].After(cutoff) {
 		i++
@@ -149,14 +178,19 @@ func (r *rateLimiter) allow(key string) bool {
 		r.seen[key] = times
 		return false
 	}
-	r.seen[key] = append(times, now)
-	// Forget keys with nothing recent, so the map cannot grow without bound.
-	if len(r.seen) > 1024 {
-		for k, ts := range r.seen {
-			if len(ts) == 0 || !ts[len(ts)-1].After(cutoff) {
-				delete(r.seen, k)
+	if !known && len(r.seen) >= r.max {
+		if now.Sub(r.lastPrune) >= r.window/16 {
+			r.lastPrune = now
+			for k, ts := range r.seen {
+				if len(ts) == 0 || !ts[len(ts)-1].After(cutoff) {
+					delete(r.seen, k)
+				}
 			}
 		}
+		if len(r.seen) >= r.max {
+			return false // full of recent sources: refuse new ones for now
+		}
 	}
+	r.seen[key] = append(times, now)
 	return true
 }
