@@ -30,7 +30,13 @@ services:
       - path: deploy/gateway.env
       - path: ${SANCTUARY_ENV_DIR:-.dev/env}/gateway.env
         required: true
-    ports: ["9000:9000", "9010:9010", "9020:9020"]
+    # Host ports are PUBLISH_TELNET, PUBLISH_TELNETS and PUBLISH_WS (default
+    # 9000/9010/9020), so staging can run beside a devcontainer that already
+    # forwards those. scripts/compose.sh -doppler reads them from Doppler.
+    ports:
+      - "${PUBLISH_TELNET:-9000}:9000"
+      - "${PUBLISH_TELNETS:-9010}:9010"
+      - "${PUBLISH_WS:-9020}:9020"
     # The realm port (9030) is deliberately not published.
 
   realm-stub:

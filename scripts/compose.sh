@@ -42,6 +42,16 @@ if [ -z "$doppler_config" ]; then
 fi
 
 command -v doppler >/dev/null || { echo "the Doppler CLI is not installed" >&2; exit 1; }
+# Host ports are read by compose itself, before any container exists, so
+# they come from the gateway's Doppler config into this shell (unless
+# already set). They are not secrets.
+for v in PUBLISH_TELNET PUBLISH_TELNETS PUBLISH_WS; do
+    if [ -z "${!v:-}" ]; then
+        val="$(doppler secrets get "$v" --plain --project sanctuary-gateway --config "$doppler_config" 2>/dev/null || true)"
+        [ -n "$val" ] && export "$v=$val"
+    fi
+done
+echo "==> publishing telnet ${PUBLISH_TELNET:-9000}, telnet+TLS ${PUBLISH_TELNETS:-9010}, WebSocket ${PUBLISH_WS:-9020}"
 env_dir="$(mktemp -d "${TMPDIR:-/tmp}/sanctuary-env.XXXXXX")"
 chmod 700 "$env_dir"
 trap 'rm -rf "$env_dir"' EXIT

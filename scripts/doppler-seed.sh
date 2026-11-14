@@ -58,6 +58,7 @@ case "$config" in
         realm_gateway=127.0.0.1:9030
         level=debug
         realm_name="Stub realm"
+        publish=()
         ;;
     stg)
         # compose.yaml: the realm port on the compose network only.
@@ -65,6 +66,9 @@ case "$config" in
         realm_gateway=gateway:9030
         level=info
         realm_name="Stub realm (staging)"
+        # Host ports for compose, clear of a devcontainer that forwards
+        # 9000-9020. Read by scripts/compose.sh, not by the gateway.
+        publish=(PUBLISH_TELNET=19000 PUBLISH_TELNETS=19010 PUBLISH_WS=19020)
         ;;
 esac
 
@@ -73,7 +77,8 @@ set_plain "$gw_project" \
     SANCTUARY_LOG_LEVEL="$level" \
     SANCTUARY_STUB_REALM=false \
     SANCTUARY_REALM_LISTEN="$gw_listen" \
-    SANCTUARY_REALM_PINS="$(cat "$keys/realm-stub.pin")"
+    SANCTUARY_REALM_PINS="$(cat "$keys/realm-stub.pin")" \
+    "${publish[@]+"${publish[@]}"}"
 set_file "$gw_project" SANCTUARY_REALM_CERT "$keys/gateway.crt"
 set_file "$gw_project" SANCTUARY_REALM_KEY "$keys/gateway.key"
 

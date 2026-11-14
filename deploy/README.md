@@ -10,6 +10,9 @@ scripts/compose.sh -doppler stg   # settings and identities from Doppler
 
 Then connect a MUD client to `localhost:9000` (telnet), `localhost:9010`
 (telnet over TLS) or `https://localhost:9020/` (the browser test page).
+The host ports are `PUBLISH_TELNET`, `PUBLISH_TELNETS` and `PUBLISH_WS`;
+the Doppler `stg` config sets them to 19000, 19010 and 19020 so staging can
+run beside a devcontainer that already forwards 9000-9020.
 
 ## What runs
 
