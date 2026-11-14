@@ -53,3 +53,24 @@ Notes from verifying this round:
 - The run pinned govulncheck v1.1.4, an old release that crashes on Go 1.27 code. `scripts/vulncheck.sh` now pins v1.9.0 and builds it with the module's own toolchain.
 
 Suspected, not demonstrated (now moot at the new floor, kept for the next round to re-check after future upgrades): resource exhaustion on the WebSocket upgrade path via the net/http issues above, and a GO-2025-4010 origin bypass (none found across twelve crafted origins).
+
+## Round 3: 2026-11-14, stage 02 (realm protocol, realm port, settings, deployment)
+
+Scope: everything since round 2 (1c3784d), attacked on the 466af6e tree in a copy. Every past finding re-run first: no regressions; `scripts/vulncheck.sh` clean (go1.27.4, govulncheck v1.9.0). Findings 1-3 and 5 re-verified against edd3771 before recording.
+
+| ID | Severity | Class | Finding | Reproduction | Status |
+| --- | --- | --- | --- | --- | --- |
+| RT-3-1 | medium | D | A realm id is a claim, not bound to the key that presents it: any trusted realm key can register as another realm's id while that realm is down, and is handed its held players and the input they type next (a password typed at a hidden prompt included). With `Handler.Realm` empty, a trusted key claiming an id that sorts first also gets every new player. | Red-team test `TestRT3OtherIdentityInheritsHeldPlayers`: two pinned keys over real mTLS; the second registers as "live" while live is down and receives a held player's input | open |
+| RT-3-2 | low | C | Transports cap a line at 4096 bytes and then sanitise it; invalid bytes become U+FFFD (3 bytes), so the line can exceed `realmproto.MaxInput` and the proxy drops it with no message and no log. | `TestRT3SanitisedLineOverMaxInputIsDropped`; live: 3000 bytes of 0x80 then CRLF to telnet, no echo | open |
+| RT-3-3 | low | D | Secret blob content given where a path is expected (flag or `_FILE`) is logged twice: in the settings report and in the file-open error. | `-realm-key '<fake PEM>'`, then grep the log for the fake content (2 lines: INFO setting, ERROR realm port) | open |
+| RT-3-4 | low | C | The realm port's rate limiter scans its whole map on every accept once more than 1024 sources are recent: cost grows with the square of distinct sources (261 µs per accept at 40,000). Needs many source addresses (an IPv6 /64); the realm port is not meant to be internet-facing. | In-package loop of `allow()` over n distinct IPv6 keys | open |
+| RT-3-5 | low | A | `ParsePin` accepts non-canonical base64 (non-zero padding bits) and returns it unchanged, so a pin for the right key never matches and the realm is refused with no hint why. | `TestRT3NonCanonicalPinAcceptedButNeverMatches` | open |
+| RT-3-6 | low | B | Tests ignore errors (testing.md §6): `internal/proxy/listener_test.go:31` and `:246`, `internal/config/config_test.go:163`. | Read the lines | open |
+| RT-3-7 | medium | A | Surviving mutants for load-bearing behaviour: Encode's frame limit (oversize realm output would close the link for everyone instead of dropping one message), the `session.closed` overflow exemption, sanitising of prompts, the 4 KiB hello cap, sanitising of realm name and build, waiting Grace (not Idle) after a ping, realm id length, and the close reasons sent to the realm (§5). Many smaller boundary and default mutants also survive. | Mutation lists in the round-3 report | open |
+
+### Suspected, not demonstrated
+
+- Gateway shutdown has no overall deadline: a realm that reads slowly but steadily could stretch `Writer.Close`'s flush of up to 16 MiB (each frame bounded at 10 s).
+- In the window between a realm's writer failing and the hub removing the realm, a held player could loop attach, fail, hold, sending a hold message each time.
+- Hidden input is not undone when a realm is lost or drains while `input.mode` hidden is on.
+- `encoding/json` matches keys case-insensitively and takes the last duplicate (`{"type":"text","TYPE":"hello"}` decodes as hello). Sender rules still apply, so no exploit, but a realm in another language could read the same frame differently.
