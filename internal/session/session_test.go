@@ -275,3 +275,53 @@ func TestQueueMessageLimitDisconnects(t *testing.T) {
 		t.Fatalf("Send past MaxMessages = %v, want ErrOverflow", err)
 	}
 }
+
+func TestSessionAccount(t *testing.T) {
+	tr, _ := session.NewMemPipe(4)
+	s := session.New(tr, session.DefaultPolicy, nil)
+	t.Cleanup(s.Close)
+	if s.Account().LoggedIn() {
+		t.Fatal("a new session is logged in")
+	}
+	roles := []string{"staff"}
+	s.SetAccount(session.Account{ID: "a1", Name: "Mara", Roles: roles})
+	roles[0] = "admin" // the caller's slice must not alias the session's
+	got := s.Account()
+	if !got.LoggedIn() || got.Name != "Mara" || len(got.Roles) != 1 || got.Roles[0] != "staff" {
+		t.Fatalf("Account() = %+v", got)
+	}
+}
+
+// One Inbox serves a whole session: events arrive in order, and Done
+// reports the player leaving.
+func TestInbox(t *testing.T) {
+	tr, c := session.NewMemPipe(4)
+	s := session.New(tr, session.DefaultPolicy, nil)
+	t.Cleanup(s.Close)
+	in := session.NewInbox(s)
+	for _, line := range []string{"one", "two"} {
+		if err := c.Send(session.Line{Text: line}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, want := range []string{"one", "two"} {
+		select {
+		case ev := <-in.Events:
+			if l, ok := ev.(session.Line); !ok || l.Text != want {
+				t.Fatalf("event = %#v, want line %q", ev, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("no event %q", want)
+		}
+	}
+	c.Hangup()
+	select {
+	case <-in.Done:
+	case <-time.After(time.Second):
+		t.Fatal("Done never reported the player leaving")
+	}
+	// Done stays closed: a later stage still sees the player gone.
+	if !in.Gone() || in.Err() == nil {
+		t.Fatalf("after the player left: Gone() = %v, Err() = %v; want true and the read error", in.Gone(), in.Err())
+	}
+}

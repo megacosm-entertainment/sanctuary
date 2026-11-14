@@ -109,9 +109,14 @@ func telnetChecks() {
 	}
 	defer c.Close()
 
+	out, err := enter(&telnetPlayer{c: c})
+	check("telnet: log in at the front door (signing up the first time) and enter the realm", err)
+	if err != nil {
+		return
+	}
 	// Stage 02: the session is served by a realm through the realm
 	// protocol, not by the gateway itself. The stub realm's banner says so.
-	check("telnet: served by the stub realm through the realm protocol", contains(c.Text.String(), nil, "stub realm"))
+	check("telnet: served by the stub realm through the realm protocol", contains(out, nil, "stub realm"))
 
 	check("telnet: server offers TTYPE, NAWS, NEW-ENVIRON, CHARSET, EOR, GMCP, MSSP, MCCP2", func() error {
 		var missing []string
@@ -146,7 +151,7 @@ func telnetChecks() {
 		return nil
 	}())
 
-	out, err := c.Round("hello from the smoke test")
+	out, err = c.Round("hello from the smoke test")
 	check("telnet: echo", contains(out, err, "You said: hello from the smoke test"))
 	check("telnet: prompt ends with IAC EOR", func() error {
 		if p := c.LastPrompt(); p != tn.EOR {
@@ -166,6 +171,7 @@ func telnetChecks() {
 	out, err = c.Round("/info")
 	check("telnet: /info shows MNES name, screen reader, NAWS and UTF-8",
 		contains(out, err, "SmokeTest 1.0", "XTERM-256COLOR", "screen reader: true", "120 x 40", "UTF-8"))
+	check("telnet: the realm knows the account (session.open)", contains(out, err, "Account:       "+*accountName))
 	check("telnet: client-supplied IPADDRESS is not stored", func() error {
 		if strings.Contains(out, "198.51.100.7") {
 			return errors.New("IPADDRESS shown in /info")
@@ -230,11 +236,17 @@ func telnetChecks() {
 		return nil
 	}())
 
-	err = c.SendLine("/quit")
+	tp := &telnetPlayer{c: c}
+	err = tp.line("/quit")
+	if err == nil {
+		out, err = tp.until("back in the lobby")
+	}
+	check("telnet: /quit in the realm returns to the lobby, still connected", err)
+	err = tp.line("quit")
 	if err == nil {
 		err = c.Pump(telnettest.DefaultTimeout, func() bool { return false })
 	}
-	check("telnet: /quit closes the connection", func() error {
+	check("telnet: quit in the lobby closes the connection", func() error {
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -250,6 +262,10 @@ func mccpChecks() {
 		return
 	}
 	defer c.Close()
+	if _, err := enter(&telnetPlayer{c: c}); err != nil {
+		check("mccp2: log in and enter the realm", err)
+		return
+	}
 	check("mccp2: compression started", func() error {
 		if !c.Compressed() {
 			return errors.New("no IAC SB MCCP2 IAC SE received")
@@ -282,6 +298,10 @@ func tlsChecks() {
 		return
 	}
 	defer c.Close()
+	if _, err := enter(&telnetPlayer{c: c}); err != nil {
+		check("tls: log in and enter the realm", err)
+		return
+	}
 	check("tls: protocol is TLS 1.2 or later", func() error {
 		tc, ok := c.Conn.(*tls.Conn)
 		if !ok {
@@ -296,6 +316,7 @@ func tlsChecks() {
 	check("tls: echo", contains(out, err, "You said: over tls"))
 	out, err = c.Round("/info")
 	check("tls: session reports encrypted transport", contains(out, err, "telnet+tls (encrypted: true)"))
+	check("tls: the realm knows the account", contains(out, err, "Account:       "+*accountName))
 }
 
 // ---------------------------------------------------------------- WebSocket
@@ -342,8 +363,8 @@ func wsChecks() {
 
 	c, resp, err := wstest.Dial(addr, wstest.DialOptions{TLS: secure, Protocols: []string{ws.ProtoGMCP}, Origin: sameOrigin})
 	if c = upgraded("ws/gmcp: upgrade with a same-origin browser Origin", ws.ProtoGMCP, c, resp, err); c != nil {
-		_, err = c.ReadUntil(ws.OpBinary, "> ")
-		check("ws/gmcp: banner in binary frames", err)
+		_, err = enter(wsPlayer{c, "\n"})
+		check("ws/gmcp: log in and enter the realm, text in binary frames", err)
 		for _, m := range []struct {
 			op byte
 			s  string
@@ -390,7 +411,7 @@ func wsChecks() {
 
 	c, resp, err = wstest.Dial(addr, wstest.DialOptions{TLS: secure, Protocols: []string{ws.ProtoTelnet}})
 	if c = upgraded("ws/telnet: upgrade without Origin (a non-browser client)", ws.ProtoTelnet, c, resp, err); c != nil {
-		out, err := c.ReadUntil(ws.OpBinary, "> ")
+		out, err := c.ReadUntil(ws.OpBinary, "Account name")
 		check("ws/telnet: telnet negotiation carried in binary frames", func() error {
 			if err != nil {
 				return err
@@ -400,7 +421,9 @@ func wsChecks() {
 			}
 			return nil
 		}())
-		err = c.Send(ws.OpBinary, []byte("hello telnet over ws\r\n"))
+		if _, err = enter(wsPlayer{c, "\r\n"}); err == nil {
+			err = c.Send(ws.OpBinary, []byte("hello telnet over ws\r\n"))
+		}
 		if err == nil {
 			_, err = c.ReadUntil(ws.OpBinary, "You said: hello telnet over ws")
 		}

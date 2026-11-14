@@ -44,10 +44,18 @@ Decided (2026-11-14): Argon2id passwords via `golang.org/x/crypto`; plain-telnet
 Done:
 
 - `internal/account`: Argon2id hashing (bounded concurrency, no timing enumeration), TOTP (RFC 6238 vectors, replay protection), secrets sealed at rest (AES-GCM, bound to the account), recovery codes, and the file store (revision checks, cross-process lock, atomic private files, invites).
+- Reserved names are a policy: a server's own names merge with the built-in list, or replace it; the words the login prompt uses stay reserved either way.
+- Login and lobby (`internal/login`), in front of the realm proxy: log in, or sign up as `SANCTUARY_SIGNUP` allows (open, invite code, or staff only). A wrong name and a wrong password get the same message. Passwords are typed with echo off. Plain telnet gets a warning (`SANCTUARY_REFUSE_PLAINTEXT_LOGIN` refuses it, pointing at TLS). TOTP or a recovery code is asked for when enrolled, a staff-reset password must be changed, disabled accounts are refused (only after a correct password), and old hashes are upgraded. Failed logins are throttled per account and per address, across connections (`login.Throttle`); so are sign-ups per address. A connection that has not logged in within `SANCTUARY_LOGIN_TIMEOUT` (2 minutes) is closed, which settles the unauthenticated half of RT-1-A1.
+- The lobby lists realms; Enter picks the first. Leaving a realm (`/quit` in the stub) comes back to the lobby; `quit` there disconnects. The account travels to the realm in `session.open` (protocol.md §7a), and the stub's `/info` shows it.
+- Settings: `DATA_DIR` (default `data`), `SIGNUP`, `REFUSE_PLAINTEXT_LOGIN`, `RESERVED_NAMES`, `RESERVED_NAMES_REPLACE`, `ACCOUNT_KEY`, `LOGIN_TIMEOUT`. Without `ACCOUNT_KEY` the gateway generates `DATA_DIR/account.key` and warns. `scripts/doppler-seed.sh` sets the key in Doppler only when it is missing (a new key would orphan TOTP enrolments); dev uploads the same `data/account.key` local runs use. Compose keeps accounts on the `gateway-data` volume.
 
-- Reserved names are a policy: a server's own names merge with the built-in list, or replace it; the words the login prompt uses stay reserved either way. Settings (`SANCTUARY_RESERVED_NAMES`, `SANCTUARY_RESERVED_NAMES_REPLACE`) arrive with the login slice.
+Try it: `scripts/run.sh`, connect, type `new`, and choose a name and password. Accounts are kept in `data/` (git-ignored); delete it to start over.
 
-Next: the login flow and lobby in the gateway, staff commands, unauthenticated idle timeout (RT-1-A1), `Char.Login`, then OAuth.
+Next:
+
+1. 3b: staff commands, `sanctuary-gateway account create|reset|invite|role|disable`, working on the same store while the gateway runs.
+2. 3c: from the lobby, TOTP enrolment (with a live test in an authenticator app) and password changes.
+3. `Char.Login` over GMCP, then OAuth.
 
 ## Stage 02: internal session protocol and a stub world server (done)
 
@@ -117,7 +125,7 @@ Decided for this stage, beyond the design document:
 
 | Item | When |
 | --- | --- |
-| Idle timeout (RT-1-A1, accepted for now) | Stage 03, with the lobby and accounts |
+| Idle timeout for logged-in players, in the lobby or a realm (the rest of RT-1-A1; the login timeout covers connections that never log in) | With realm idle handling, after stage 03 |
 | Rootless Podman's default port forwarding (rootlessport) hides players' addresses: every connection appears to come from the Podman network, so `MAX_PER_HOST` would cap the whole server and logs cannot tell players apart. Use pasta networking or a proxy that preserves the client address | Before real players connect |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |
 | Decisions still open in design §14: scene presentation, combat timing, remote replay, script migration | Before the stages they block |

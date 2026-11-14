@@ -10,7 +10,7 @@ Each wire protocol and each layer has one test client or harness. Use it. If it 
 
 | Need | Use | Location |
 | --- | --- | --- |
-| Drive a session handler with no sockets | `sessiontest.Harness` | `internal/session/sessiontest` |
+| Drive a session handler with no sockets (`Options.Meta` for an unencrypted connection or a source address) | `sessiontest.Harness` | `internal/session/sessiontest` |
 | Act as a telnet MUD client (negotiation, MTTS, MNES, MCCP2) | `telnettest.Client` with a `Profile` | `internal/telnet/telnettest` |
 | Act as a WebSocket client (handshake, masked frames, close codes) | `wstest.Client` | `internal/websocket/wstest` |
 | Print telnet bytes readably in a failure message | `telnet.Describe` | `internal/telnet/describe.go` |

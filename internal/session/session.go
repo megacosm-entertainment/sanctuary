@@ -97,6 +97,7 @@ type Session struct {
 	client      ClientInfo // as last reported by the transport
 	hello       coreHello  // from GMCP Core.Hello
 	dropped     int
+	account     Account // set once the player has logged in
 
 	wake      chan struct{}
 	done      chan struct{}
@@ -373,4 +374,33 @@ func sizeOf(o Outbound) int {
 	default:
 		return overhead
 	}
+}
+
+// Account is who a session belongs to once its player has logged in:
+// identity only, never credentials. The zero value means not logged in.
+type Account struct {
+	ID    string
+	Name  string
+	Roles []string
+}
+
+// LoggedIn reports whether the account is set.
+func (a Account) LoggedIn() bool { return a.ID != "" }
+
+// SetAccount records who the session belongs to (the gateway's login, or
+// a realm learning it from session.open).
+func (s *Session) SetAccount(a Account) {
+	a.Roles = append([]string(nil), a.Roles...)
+	s.mu.Lock()
+	s.account = a
+	s.mu.Unlock()
+}
+
+// Account returns who the session belongs to, if anyone yet.
+func (s *Session) Account() Account {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.account
+	a.Roles = append([]string(nil), a.Roles...)
+	return a
 }

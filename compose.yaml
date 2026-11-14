@@ -38,6 +38,10 @@ services:
       - "${PUBLISH_TELNETS:-9010}:9010"
       - "${PUBLISH_WS:-9020}:9020"
     # The realm port (9030) is deliberately not published.
+    # Accounts (password hashes, invites) and, without ACCOUNT_KEY, the
+    # generated account key. The root filesystem stays read-only.
+    volumes:
+      - gateway-data:/data
 
   realm-stub:
     <<: *hardening
@@ -51,3 +55,6 @@ services:
       - path: ${SANCTUARY_ENV_DIR:-.dev/env}/realm-stub.env
         required: true
     depends_on: [gateway]
+
+volumes:
+  gateway-data:

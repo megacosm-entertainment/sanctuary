@@ -38,7 +38,8 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | WebSocket upgrade, origin check, framing | `websocket.Upgrade`, `websocket.Conn` | `internal/websocket` |
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
 | Hash and check passwords (Argon2id, bounded concurrency, no account enumeration by timing) | `account.Hasher`, `CheckNewPassword` | `internal/account/password.go` |
-| TOTP codes with replay protection; secrets sealed at rest; recovery codes | `account.CheckTOTP`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
+| TOTP codes with replay protection; secrets sealed at rest; recovery codes | `account.CheckTOTP`, `TOTPCode`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
+| Read the account key from a setting (base64 or hex), or create a key file | `account.ParseKey`, `LoadOrCreateKeyFile`, `NewKeyText` | `internal/account/keyfile.go` |
 | Accounts and invites, stored with revision checks and atomic, private files | `account.Store`, `account.FileStore` | `internal/account` |
 | Account name rules and reserved names (server additions merged or replacing the built-in list) | `account.Names`, `NewNames` | `internal/account/account.go` |
 | Declare a program setting once: flag, `SANCTUARY_` env var, env-file key, secret handling | `config.Set` (`String`, `Int`, `Bool`, `Duration`, `Blob`) | `internal/config` |
@@ -52,7 +53,12 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Realm-link TLS: pinned keys and/or CA, identities, pin files | `realmproto.ServerTLS`, `ClientTLS`, `Trust`, `WriteIdentity`, `ReadPins` | `internal/realmproto/tls.go` |
 | Bind realm ids to keys; which ids a connected realm may claim | `realmproto.ParseRealmPins`, `RealmIDs`, `cli.RealmTrust` | `internal/realmproto/tls.go`, `internal/cli` |
 | Ping a quiet link, end a silent one | `realmproto.Keepalive`, `Conn.RecvIdle` | `internal/realmproto/keepalive.go` |
-| Gateway side of realm links; route a player to a realm | `proxy.Hub`, `proxy.Handler` | `internal/proxy` |
+| Gateway side of realm links; route a player to a realm and relay until they leave it (`Play` returns `Back` or `Gone`) | `proxy.Hub`, `proxy.Handler`, `Handler.Play` | `internal/proxy` |
+| One reader for a session, shared by stages that take turns (login, lobby, realm) | `session.Inbox` | `internal/session/inbox.go` |
+| Who a session logged in as | `Session.SetAccount`, `Session.Account` | `internal/session/session.go` |
+| Login, sign-up and the lobby, in front of the proxy | `login.New`, `login.Handler` | `internal/login` |
+| Slow repeated failures across connections (count at start, refund on success, queue parallel attempts) | `login.Throttle` | `internal/login/throttle.go` |
+| Rate-limit key for an address (IPv6 grouped by /64) | `proxy.SourceKey` | `internal/proxy/listener.go` |
 | Realm port: handshake limits, per-source rate limiting | `proxy.Hub.ServeListener` | `internal/proxy/listener.go` |
 | The stub realm (echo behind the protocol) | `realm.StubHandler` | `internal/realm/stub.go` |
 | Test clients and harnesses | see [testing.md §1](testing.md#1-use-the-shared-scaffolding-extend-it-dont-hand-roll) | |

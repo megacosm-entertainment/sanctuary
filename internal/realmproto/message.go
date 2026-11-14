@@ -104,6 +104,15 @@ type SessionOpen struct {
 	Transport string     `json:"transport"`
 	Secure    bool       `json:"secure"`
 	Client    ClientInfo `json:"client"`
+	// Account is who the player logged in as (stage 03), absent for a
+	// gateway without login. Identity only, never credentials.
+	Account *AccountInfo `json:"account,omitempty"`
+}
+
+// AccountInfo identifies the player's account to a realm.
+type AccountInfo struct {
+	ID   string `json:"id"`   // stable for the account's life
+	Name string `json:"name"` // as the player chose it
 }
 
 // Input is one line of player input. Untrusted.
@@ -586,7 +595,29 @@ func (m *SessionOpen) validate() error {
 	if !token(m.Transport, 32) && !transportKind(m.Transport) {
 		return fieldErr("session.open", "transport", "must be a short token")
 	}
+	if m.Account != nil {
+		if !opaqueID(m.Account.ID) {
+			return fieldErr("session.open", "account.id", "is not a valid id")
+		}
+		if !accountName(m.Account.Name) {
+			return fieldErr("session.open", "account.name", "must be 1-32 letters and digits")
+		}
+	}
 	return m.Client.validate("session.open")
+}
+
+// accountName: account names are ASCII letters and digits (the gateway's
+// rule is stricter; this is what a realm may rely on).
+func accountName(s string) bool {
+	if len(s) == 0 || len(s) > 32 {
+		return false
+	}
+	for _, c := range []byte(s) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // transportKind accepts the session kinds that contain '/' or '+'
@@ -726,7 +757,7 @@ func checkObject(obj []byte, top bool) error {
 		if err := dec.Decode(&value); err != nil {
 			return fmt.Errorf("%w: %v", ErrNotObject, err)
 		}
-		if top && (key == "meta" || key == "client") && len(value) > 0 && value[0] == '{' {
+		if top && (key == "meta" || key == "client" || key == "account") && len(value) > 0 && value[0] == '{' {
 			if err := checkObject(value, false); err != nil {
 				return err
 			}

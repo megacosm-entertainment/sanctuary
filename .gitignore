@@ -31,3 +31,6 @@ coverage.*
 
 # Local development identities (scripts/run.sh -split)
 .dev/
+
+# Gateway account data (DATA_DIR): password hashes and the account key
+/data/

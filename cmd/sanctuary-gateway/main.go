@@ -16,16 +16,21 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
+	"sanctuary/internal/account"
 	"sanctuary/internal/cli"
 	"sanctuary/internal/config"
 	"sanctuary/internal/echo"
 	"sanctuary/internal/gateway"
+	"sanctuary/internal/login"
 	"sanctuary/internal/proxy"
 	"sanctuary/internal/realm"
 	"sanctuary/internal/realmproto"
@@ -57,6 +62,14 @@ func declare() (*config.Set, settings) {
 		realmKey:    s.Blob("REALM_KEY", true, "gateway identity key for the realm port"),
 		realmPins:   s.String("REALM_PINS", "", "comma-separated id=sha256/... bindings: which realm each pinned key may register as (or files of them)"),
 		realmCA:     s.Blob("REALM_CA", false, "CA bundle for realm certificates; a CA-issued realm may register only as its certificate's Common Name or DNS name"),
+
+		dataDir:      s.String("DATA_DIR", "data", "where accounts are stored (and the generated account key, if ACCOUNT_KEY is unset)"),
+		signup:       s.String("SIGNUP", "open", "who may create accounts: open (anyone), invite (with a code from staff) or staff (staff only)"),
+		refusePlain:  s.Bool("REFUSE_PLAINTEXT_LOGIN", false, "refuse logins on unencrypted connections (plain telnet) instead of warning"),
+		reserved:     s.String("RESERVED_NAMES", "", "comma-separated account names to reserve, on top of the built-in list"),
+		reservedOnly: s.Bool("RESERVED_NAMES_REPLACE", false, "RESERVED_NAMES replaces the built-in list instead of adding to it"),
+		accountKey:   s.Blob("ACCOUNT_KEY", true, "32-byte key (base64 or hex) that encrypts TOTP secrets; generated in DATA_DIR/account.key if unset"),
+		loginTimeout: s.Duration("LOGIN_TIMEOUT", 2*time.Minute, "how long a connection may take to log in"),
 	}
 }
 
@@ -68,6 +81,10 @@ type settings struct {
 	tlsCert, tlsKey                                            config.Blob
 	realmListen, realmPins                                     *string
 	realmCert, realmKey, realmCA                               config.Blob
+	dataDir, signup, reserved                                  *string
+	refusePlain, reservedOnly                                  *bool
+	accountKey                                                 config.Blob
+	loginTimeout                                               *time.Duration
 }
 
 func main() {
@@ -109,7 +126,11 @@ func main() {
 	var background sync.WaitGroup
 	if !*o.echoOnly {
 		hub := proxy.NewHub(proxy.HubConfig{Gateway: "dev", Log: log})
-		handler = proxy.Handler{Hub: hub}
+		front, err := frontDoor(o, hub, log)
+		if err != nil {
+			fail("accounts", err)
+		}
+		handler = front
 		if *o.stubRealm {
 			gwEnd, realmEnd := realmproto.Pipe()
 			background.Add(2)
@@ -191,4 +212,61 @@ func main() {
 	if err != nil {
 		fail("gateway stopped", err)
 	}
+}
+
+// frontDoor builds the login and lobby handler from the account settings.
+func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, error) {
+	signup, err := login.ParseSignup(*o.signup)
+	if err != nil {
+		return nil, err
+	}
+	names, err := account.NewNames(cli.SplitList(*o.reserved), *o.reservedOnly)
+	if err != nil {
+		return nil, err
+	}
+	store, err := account.OpenFileStore(*o.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	store.Names = names
+	var key *account.SecretKey
+	if o.accountKey.Set() {
+		text, err := o.accountKey.Bytes()
+		if err != nil {
+			return nil, err
+		}
+		if key, err = account.ParseKey(text); err != nil {
+			return nil, fmt.Errorf("ACCOUNT_KEY: %w", err)
+		}
+	} else {
+		path := filepath.Join(*o.dataDir, "account.key")
+		var created bool
+		if key, created, err = account.LoadOrCreateKeyFile(path); err != nil {
+			return nil, err
+		}
+		if created {
+			log.Warn("no ACCOUNT_KEY given: generated one beside the accounts; back it up, or TOTP enrolments are lost with it", "file", path)
+		}
+	}
+	hint := ""
+	if *o.tlsAddr != "" {
+		if _, port, err := net.SplitHostPort(*o.tlsAddr); err == nil {
+			hint = "telnet over TLS on port " + port
+		}
+	}
+	if signup == login.SignupOpen {
+		log.Info("anyone can create an account (SIGNUP=open)")
+	}
+	return login.New(login.Config{
+		Store:           store,
+		Names:           names,
+		Hasher:          account.NewHasher(account.DefaultParams, 4),
+		Key:             key,
+		Throttle:        login.NewThrottle(),
+		Signup:          signup,
+		RefusePlaintext: *o.refusePlain,
+		SecureHint:      hint,
+		Timeout:         *o.loginTimeout,
+		Realms:          proxy.Handler{Hub: hub},
+	})
 }

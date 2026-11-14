@@ -34,6 +34,7 @@ type Harness struct {
 type Options struct {
 	Policy    session.QueuePolicy // zero means session.DefaultPolicy
 	OutBuffer int                 // client-side buffer; 0 means 256
+	Meta      *session.Meta       // what the transport reports; nil means encrypted, remote "mem"
 }
 
 // New starts h on a fresh in-memory session.
@@ -50,6 +51,9 @@ func New(t testing.TB, h session.Handler, opts ...Options) *Harness {
 		o.OutBuffer = 256
 	}
 	tr, client := session.NewMemPipe(o.OutBuffer)
+	if o.Meta != nil {
+		tr.WithMeta(*o.Meta)
+	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := session.New(tr, o.Policy, log)
 	ctx, cancel := context.WithCancel(context.Background())

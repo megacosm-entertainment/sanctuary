@@ -105,3 +105,11 @@ func (c *MemClient) Closed() <-chan struct{} { return c.t.closed }
 
 // Hangup closes the transport from the client side.
 func (c *MemClient) Hangup() { c.t.Close() }
+
+// WithMeta replaces what the transport reports about where it came from,
+// for tests of handlers that care (an unencrypted connection, a source
+// address). Call it before the session is created.
+func (t *MemTransport) WithMeta(m Meta) *MemTransport {
+	t.meta = m
+	return t
+}

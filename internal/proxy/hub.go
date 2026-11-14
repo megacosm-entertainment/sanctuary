@@ -376,12 +376,16 @@ func (r *Realm) attach(s *session.Session) (*attached, error) {
 	r.sessions[s.ID] = a
 	r.mu.Unlock()
 	m := s.Meta()
-	err := r.w.Send(&realmproto.SessionOpen{
+	open := &realmproto.SessionOpen{
 		Session:   s.ID,
 		Transport: m.Kind,
 		Secure:    m.Secure,
 		Client:    realmproto.ClientFrom(s.Client()),
-	})
+	}
+	if acct := s.Account(); acct.LoggedIn() {
+		open.Account = &realmproto.AccountInfo{ID: acct.ID, Name: acct.Name}
+	}
+	err := r.w.Send(open)
 	if err != nil {
 		r.detach(s.ID, "")
 		return nil, err

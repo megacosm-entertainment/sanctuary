@@ -56,14 +56,14 @@ func TestRateLimiterBoundedUnderManySources(t *testing.T) {
 }
 
 func TestSourceKeyGroupsIPv6By64(t *testing.T) {
-	a, b := sourceKey("2001:db8:1:2:aaaa::1"), sourceKey("2001:db8:1:2:ffff::9")
+	a, b := SourceKey("2001:db8:1:2:aaaa::1"), SourceKey("2001:db8:1:2:ffff::9")
 	if a != b || a != "2001:db8:1:2::/64" {
 		t.Fatalf("sourceKey = %q, %q; want both 2001:db8:1:2::/64", a, b)
 	}
-	if sourceKey("2001:db8:1:3::1") == a {
+	if SourceKey("2001:db8:1:3::1") == a {
 		t.Fatal("different /64s share a key")
 	}
-	if sourceKey("192.0.2.7") != "192.0.2.7" {
+	if SourceKey("192.0.2.7") != "192.0.2.7" {
 		t.Fatal("an IPv4 source was not kept as is")
 	}
 }

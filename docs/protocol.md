@@ -143,7 +143,7 @@ lifetime and never reused while a link is up.
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
-| `session.open` | `session`, `transport`, `secure`, `client` | A player was routed to this realm. `transport` is the session kind (`telnet`, `ws/gmcp`, …); `secure` says whether the client's link is encrypted; `client` is the client-info object (§7). |
+| `session.open` | `session`, `transport`, `secure`, `client`, `account` | A player was routed to this realm. `transport` is the session kind (`telnet`, `ws/gmcp`, …); `secure` says whether the client's link is encrypted; `client` is the client-info object (§7); `account` is who logged in (§7a), absent when the gateway has no accounts. |
 | `input` | `session`, `text` | One line of input. Valid UTF-8 with control sequences stripped, at most 4096 bytes. Still untrusted. |
 | `gmcp` | `session`, `package`, `data` | A well-formed GMCP message from the client. `data` is any JSON value, or absent. |
 | `client` | `session`, `client` | The client's self-description changed (window resized, MNES update). |
@@ -218,6 +218,25 @@ will deliver: `"UTF-8"` once the client has claimed UTF-8 (CHARSET, MNES
 `gmcp.mudstandards.org`), and absent when it has not, in which case the
 gateway folds all text to plain ASCII. MNES variables beyond these are
 not forwarded, and `IPADDRESS` never is.
+
+## 7a. Account
+
+The `account` object in `session.open` says who the player logged in as:
+
+```json
+{"id": "0123456789abcdef0123456789abcdef", "name": "Mara"}
+```
+
+Unlike `client`, it is not a claim: the gateway authenticated the player
+(password, and TOTP when enrolled) before routing them, and a realm may
+rely on it to find the player's characters. `id` is opaque and stable for
+the account's life; key records by it, not by `name`. `name` is 1-32 ASCII
+letters and digits, unique ignoring case, for display. The realm never
+sees a password or a second factor, and the link carries no way to send
+one.
+
+A realm that receives no `account` (a gateway from before stage 03, or a
+test harness) must treat the player as anonymous.
 
 ## 8. Link lifecycle
 

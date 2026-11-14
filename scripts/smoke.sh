@@ -35,7 +35,7 @@ dev_keys "$work/keys"
 
 ./bin/sanctuary-gateway -log-level debug -stub-realm=false \
     -telnet 127.0.0.1:19000 -telnets 127.0.0.1:19010 -ws 127.0.0.1:19020 \
-    -realm-listen 127.0.0.1:19030 \
+    -realm-listen 127.0.0.1:19030 -data-dir "$work/data" \
     -realm-cert "$work/keys/gateway.crt" -realm-key "$work/keys/gateway.key" \
     -realm-pins "stub=$(cat "$work/keys/realm-stub.pin")" \
     >"$log" 2>&1 &
@@ -93,6 +93,9 @@ logcheck "malformed GMCP rejected"                      '"msg":"rejected malform
 logcheck "cross-origin WebSocket refused"               'cross-origin request: https://evil.example'
 logcheck "realm port listening, mTLS only"              '"transport":"realm (mTLS)"'
 logcheck "stub realm registered over mTLS"              '"msg":"realm registered".*"realm":"stub"'
+logcheck "account created at the front door"            '"msg":"account created".*"account":"smoketest"'
+logcheck "players logged in"                            '"msg":"logged in".*"account":"smoketest"'
+if grep -q "smoke test passphrase" "$log" "$rlog"; then echo "FAIL  log: a password was logged"; status=1; else echo "PASS  log: passwords never logged"; fi
 logcheck "players routed to the realm"                  '"msg":"routed to realm".*"realm":"stub"'
 logcheck "realm process registered with the gateway"    '"msg":"registered with gateway"' "$rlog"
 logcheck "realm served the players"                     '"msg":"session opened".*"remote":"gateway"' "$rlog"
@@ -112,6 +115,11 @@ waitfor() { # file pattern
     for _ in $(seq 50); do grep -q "$2" "$1" && return 0; sleep 0.1; done
     return 1
 }
+# Log in as the account the client checks created, then enter the realm.
+say() { printf "%s\r\n" "$1" >&3; }
+waitfor "$held" "Account name" && say smoketest
+waitfor "$held" "Password" && say "smoke test passphrase"
+waitfor "$held" "Realm (" && say ""
 waitfor "$held" "stub realm" || { echo "FAIL  player never reached the realm"; status=1; }
 # It never claimed UTF-8, so the realm's reply reaches it as plain ASCII.
 printf 'Caf\303\251 \342\200\224 ok\r\n' >&3

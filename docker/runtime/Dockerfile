@@ -23,13 +23,17 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false \
     go build -trimpath -ldflags="-s -w" -o /out/sanctuary-gateway ./cmd/sanctuary-gateway && \
     CGO_ENABLED=0 GOFLAGS=-buildvcs=false \
-    go build -trimpath -ldflags="-s -w" -o /out/sanctuary-realm ./cmd/sanctuary-realm
+    go build -trimpath -ldflags="-s -w" -o /out/sanctuary-realm ./cmd/sanctuary-realm && \
+    mkdir -p /state/data && chown 65532:65532 /state/data && chmod 700 /state/data
 
 FROM scratch
 LABEL org.opencontainers.image.title="Sanctuary runtime" \
       org.opencontainers.image.source="https://github.com/megacosm-entertainment/sanctuary" \
       org.opencontainers.image.authors="Ryan Hanson <hamartia@sanctuary-roleplay.org>"
 COPY --from=build /out/ /
+# DATA_DIR for accounts: owned by the runtime user, so a fresh named volume
+# mounted here (compose.yaml) starts out writable by it and nobody else.
+COPY --from=build --chown=65532:65532 /state/data /data
 # 65532 is the conventional "nonroot" id; compose.yaml may override it so
 # mounted key files owned by you are readable.
 USER 65532:65532

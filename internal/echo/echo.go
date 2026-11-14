@@ -113,6 +113,9 @@ func describe(s *session.Session) string {
 	m := s.Meta()
 	c := s.Client()
 	var b strings.Builder
+	if a := s.Account(); a.LoggedIn() {
+		fmt.Fprintf(&b, "Account:       %s\n", a.Name)
+	}
 	fmt.Fprintf(&b, "Transport:     %s (encrypted: %v)\n", m.Kind, m.Secure)
 	fmt.Fprintf(&b, "Client:        %s\n", orUnknown(strings.TrimSpace(c.Name+" "+c.Version)))
 	fmt.Fprintf(&b, "Terminal:      %s\n", orUnknown(c.Terminal))

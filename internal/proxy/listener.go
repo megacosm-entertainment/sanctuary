@@ -80,7 +80,7 @@ func (h *Hub) ServeListener(ctx context.Context, l net.Listener, lc ListenerConf
 			return err
 		}
 		host := remoteHost(nc)
-		if !limiter.allow(sourceKey(host)) {
+		if !limiter.allow(SourceKey(host)) {
 			h.log.Warn("realm connection refused: rate limit", "remote", host)
 			nc.Close()
 			continue
@@ -131,10 +131,10 @@ func remoteHost(c net.Conn) string {
 	return host
 }
 
-// sourceKey is what the rate limit counts by: the address, or for IPv6 its
+// SourceKey is what a rate limit counts by: the address, or for IPv6 its
 // /64, the usual allocation to one host or site, so one machine cannot
 // spread its attempts over 2^64 addresses (RT-3-4).
-func sourceKey(host string) string {
+func SourceKey(host string) string {
 	ip := net.ParseIP(host)
 	if ip == nil || ip.To4() != nil {
 		return host

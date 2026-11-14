@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fill a Doppler config of both projects (sanctuary-gateway and
 # sanctuary-stub-realm) with working defaults: addresses, pins, and the
-# realm-link certificates and keys as content.
+# realm-link certificates and keys as content, and the gateway's account key.
 #
 #   scripts/doppler-seed.sh dev    uses the identities in .dev/keys (made on
 #                                  first use), so run.sh -split works the
@@ -81,6 +81,30 @@ set_plain "$gw_project" \
     "${publish[@]+"${publish[@]}"}"
 set_file "$gw_project" SANCTUARY_REALM_CERT "$keys/gateway.crt"
 set_file "$gw_project" SANCTUARY_REALM_KEY "$keys/gateway.key"
+
+# ACCOUNT_KEY encrypts TOTP secrets. Unlike the link identities it is set
+# only when missing, never replaced: a new key would make every existing
+# TOTP enrolment unreadable. dev uploads the key local runs use
+# (data/account.key, made here if needed), so -doppler and plain runs agree.
+has_secret() { # PROJECT NAME
+    doppler secrets --project "$1" --config "$config" --only-names --json | grep -q "\"$2\""
+}
+if has_secret "$gw_project" SANCTUARY_ACCOUNT_KEY; then
+    echo "    SANCTUARY_ACCOUNT_KEY already set; kept (replacing it would orphan TOTP enrolments)"
+else
+    if [ "$config" = dev ]; then
+        keyfile=data/account.key
+        if [ ! -f "$keyfile" ]; then
+            mkdir -p data && chmod 700 data
+            (umask 077; head -c 32 /dev/urandom | base64 >"$keyfile")
+        fi
+    else
+        keyfile="$keys/account.key"
+        (umask 077; head -c 32 /dev/urandom | base64 >"$keyfile")
+    fi
+    set_file "$gw_project" SANCTUARY_ACCOUNT_KEY "$keyfile"
+    echo "    SANCTUARY_ACCOUNT_KEY set"
+fi
 
 echo "==> $realm_project/$config"
 set_plain "$realm_project" \

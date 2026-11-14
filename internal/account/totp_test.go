@@ -25,6 +25,9 @@ func TestTOTPMatchesRFC6238(t *testing.T) {
 		if got, want := totpAt(secret, step), eight[2:]; got != want {
 			t.Errorf("code at %d = %s, want %s (RFC 6238 vector %s)", unix, got, want, eight)
 		}
+		if got := TOTPCode(secret, time.Unix(unix, 0)); got != eight[2:] {
+			t.Errorf("TOTPCode at %d = %s, want %s", unix, got, eight[2:])
+		}
 	}
 }
 

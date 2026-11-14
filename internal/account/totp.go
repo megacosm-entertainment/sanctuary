@@ -214,3 +214,9 @@ func uniformIndex(n int) (int, error) {
 		}
 	}
 }
+
+// TOTPCode is the code an authenticator shows at time now: for checking
+// enrolment ("type the code your app shows") and for tests.
+func TOTPCode(secret []byte, now time.Time) string {
+	return totpAt(secret, now.Unix()/int64(totpStep/time.Second))
+}

@@ -279,6 +279,9 @@ func (l *link) open(ctx context.Context, o *realmproto.SessionOpen) error {
 
 	// Session ids come from the gateway, so log lines on both sides match.
 	s := session.NewWithID(o.Session, p, l.cfg.Policy, l.log)
+	if o.Account != nil {
+		s.SetAccount(session.Account{ID: o.Account.ID, Name: o.Account.Name})
+	}
 	l.reg.Reserve("gateway", 0, 0) // 0, 0: no limits; the gateway enforces them
 	go l.reg.Serve(ctx, "gateway", s, l.cfg.Handler)
 	return nil

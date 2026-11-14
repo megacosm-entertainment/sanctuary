@@ -130,6 +130,8 @@ func TestRoundTrip(t *testing.T) {
 		{realmproto.FromGateway, &realmproto.Reject{Reason: realmproto.RejectUnsupportedVersion, Versions: []int{1}}},
 		{realmproto.FromGateway, &realmproto.SessionOpen{Session: 7, Transport: "ws/gmcp", Secure: true,
 			Client: realmproto.ClientInfo{Name: "mushclient", Terminal: "ANSI", MTTS: intp(13), Charset: "UTF-8", Width: 80, Height: 26}}},
+		{realmproto.FromGateway, &realmproto.SessionOpen{Session: 8, Transport: "telnet+tls", Secure: true,
+			Account: &realmproto.AccountInfo{ID: "0123456789abcdef0123456789abcdef", Name: "Mara"}}},
 		{realmproto.FromGateway, &realmproto.Input{Session: 7, Text: "look"}},
 		{realmproto.FromGateway, &realmproto.Client{Session: 7, Client: realmproto.ClientInfo{Width: 120, Height: 40}}},
 		{realmproto.FromGateway, &realmproto.SessionClosed{Session: 7, Reason: realmproto.ClosedQuit}},
@@ -213,6 +215,11 @@ func TestDecodeRejects(t *testing.T) {
 		{"meta kind uppercase", realmproto.FromRealm, `{"type":"text","session":1,"text":"x","meta":{"kind":"POSE"}}`, realmproto.ErrInvalidField},
 		{"drain without deadline", realmproto.FromRealm, `{"type":"drain"}`, realmproto.ErrInvalidField},
 		{"window wider than NAWS allows", realmproto.FromGateway, `{"type":"client","session":1,"client":{"width":70000}}`, realmproto.ErrInvalidField},
+		{"account without id", realmproto.FromGateway, `{"type":"session.open","session":1,"transport":"telnet","account":{"name":"Mara"}}`, realmproto.ErrInvalidField},
+		{"account name with a space", realmproto.FromGateway, `{"type":"session.open","session":1,"transport":"telnet","account":{"id":"a1","name":"Ma ra"}}`, realmproto.ErrInvalidField},
+		{"account name too long", realmproto.FromGateway, `{"type":"session.open","session":1,"transport":"telnet","account":{"id":"a1","name":"` + strings.Repeat("a", 33) + `"}}`, realmproto.ErrInvalidField},
+		{"account key in capitals", realmproto.FromGateway, `{"type":"session.open","session":1,"transport":"telnet","account":{"id":"a1","Name":"Mara"}}`, realmproto.ErrKeySpelling},
+		{"account key in capitals outside", realmproto.FromGateway, `{"type":"session.open","session":1,"transport":"telnet","Account":{"id":"a1","name":"Mara"}}`, realmproto.ErrKeySpelling},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
