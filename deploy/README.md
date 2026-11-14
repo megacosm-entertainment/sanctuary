@@ -1,0 +1,86 @@
+# Deploying Sanctuary
+
+The reference small deployment: the gateway and a realm as separate
+containers, linked by the realm protocol over mTLS (docs/protocol.md).
+
+```bash
+scripts/devkeys.sh         # once: realm-link identities in .dev/keys
+docker compose up --build
+```
+
+Then connect a MUD client to `localhost:9000` (telnet), `localhost:9010`
+(telnet over TLS) or `https://localhost:9020/` (the browser test page).
+
+## What runs
+
+| Service | Image | Ports | Talks to |
+| --- | --- | --- | --- |
+| `gateway` | `docker/runtime/Dockerfile` | 9000, 9010, 9020 published | realms, on 9030 inside the compose network only |
+| `realm-stub` | the same image | none | the gateway's realm port |
+
+The runtime image is `scratch` plus two static binaries: no shell, no
+package manager, no compilers, an unprivileged user. Containers run
+read-only with every capability dropped. The development image
+(`docker/dev`) is never used to run a server.
+
+## Settings
+
+Each program reads its settings from, in increasing precedence:
+
+1. built-in defaults,
+2. its env file (`deploy/gateway.env`, `deploy/realm-stub.env`),
+3. the environment,
+4. command-line flags.
+
+Every setting has one name in three forms: the flag `-realm-listen`, the
+variable `SANCTUARY_REALM_LISTEN`, and the file line
+`SANCTUARY_REALM_LISTEN=:9030`. `sanctuary-gateway -help` and
+`sanctuary-realm -help` list them all. At startup each program logs every
+setting that is not at its default, and where it came from.
+
+Because the environment overrides the files, a secrets manager needs no
+special support:
+
+```bash
+doppler run -- docker compose up
+```
+
+`SANCTUARY_*` variables from Doppler (or Vault, or a CI secret store)
+replace the file values. Only `SANCTUARY_*` variables are read; anything
+else in the environment, such as `DOPPLER_TOKEN`, is ignored and never
+logged.
+
+### Secrets
+
+Private keys are *secret* settings. They can be given:
+
+- as a path, in any source: `SANCTUARY_REALM_KEY_FILE=/run/secrets/...`, or
+  the flag `-realm-key /path`. compose.yaml uses this, with Docker secrets;
+- as content, from the environment only: `SANCTUARY_REALM_KEY="-----BEGIN
+  PRIVATE KEY-----..."`, as a secrets manager injects it.
+
+Secret content is refused in a config file (files get committed) and has no
+flag form (flags show in `ps`). It is never logged: the startup report
+shows `[secret]`.
+
+## Keys and trust
+
+`scripts/devkeys.sh` makes a pinned identity for the gateway and for the
+stub realm, in `.dev/keys` (git-ignored). Each side trusts the other's
+public-key pin (`*.pin`). For a real deployment, either make identities on
+each host with `-gen-identity PREFIX` and exchange the pins, or issue
+certificates from a CA (cert-manager, for example) and set
+`SANCTUARY_REALM_CA` on the gateway and `SANCTUARY_GATEWAY_CA` on realms;
+pins and a CA may be used together.
+
+The key files are mode 0600 and owned by you, so compose runs the
+containers as your user (`SANCTUARY_UID`, `SANCTUARY_GID`, default 1000).
+
+## Realms on other hosts
+
+A realm needs only the gateway's address and pin. To run one elsewhere,
+bind the gateway's `SANCTUARY_REALM_LISTEN` to a private address, keep that
+port off the internet (firewall or network policy), and point the realm's
+`SANCTUARY_GATEWAY` at it. File-based storage is single-host, so a realm
+that moves between hosts will need a networked storage backend once
+realms persist anything (design §04).

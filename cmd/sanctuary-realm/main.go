@@ -23,25 +23,38 @@ import (
 	"sanctuary/internal/realmproto"
 )
 
-func main() {
+// declare declares every setting. It is separate from main so tests can
+// check the example config files in deploy/ against the real settings.
+func declare() (*config.Set, settings) {
 	s := config.New("sanctuary-realm")
-	var (
-		gateway     = s.String("GATEWAY", "127.0.0.1:9030", "gateway realm port to dial (host:port)")
-		gatewayName = s.String("GATEWAY_NAME", "", "gateway name checked in CA mode (default: the host in GATEWAY)")
-		gatewayPins = s.String("GATEWAY_PINS", "", "comma-separated gateway pins (sha256/...) or files of pins")
-		gatewayCA   = s.Blob("GATEWAY_CA", false, "CA bundle that may issue the gateway's certificate")
-		cert        = s.Blob("CERT", false, "this realm's identity certificate")
-		key         = s.Blob("KEY", true, "this realm's identity key")
-		id          = s.String("ID", "stub", "realm id: 1-32 of [a-z0-9-], unique per gateway")
-		name        = s.String("NAME", "Stub realm", "name shown in the gateway's realm list")
-		build       = s.String("BUILD", "dev", "build identity reported to the gateway")
-		logLevel    = s.String("LOG_LEVEL", "info", "debug, info, warn or error")
-		dialTimeout = s.Duration("DIAL_TIMEOUT", 10*time.Second, "time allowed to connect and complete the TLS handshake")
-	)
+	return s, settings{
+		gateway:     s.String("GATEWAY", "127.0.0.1:9030", "gateway realm port to dial (host:port)"),
+		gatewayName: s.String("GATEWAY_NAME", "", "gateway name checked in CA mode (default: the host in GATEWAY)"),
+		gatewayPins: s.String("GATEWAY_PINS", "", "comma-separated gateway pins (sha256/...) or files of pins"),
+		gatewayCA:   s.Blob("GATEWAY_CA", false, "CA bundle that may issue the gateway's certificate"),
+		cert:        s.Blob("CERT", false, "this realm's identity certificate"),
+		key:         s.Blob("KEY", true, "this realm's identity key"),
+		id:          s.String("ID", "stub", "realm id: 1-32 of [a-z0-9-], unique per gateway"),
+		name:        s.String("NAME", "Stub realm", "name shown in the gateway's realm list"),
+		build:       s.String("BUILD", "dev", "build identity reported to the gateway"),
+		logLevel:    s.String("LOG_LEVEL", "info", "debug, info, warn or error"),
+		dialTimeout: s.Duration("DIAL_TIMEOUT", 10*time.Second, "time allowed to connect and complete the TLS handshake"),
+	}
+}
+
+// settings are the realm's operational settings.
+type settings struct {
+	gateway, gatewayName, gatewayPins, id, name, build, logLevel *string
+	gatewayCA, cert, key                                         config.Blob
+	dialTimeout                                                  *time.Duration
+}
+
+func main() {
+	s, o := declare()
 	genIdentity := s.Flags().String("gen-identity", "", "write a new realm-link identity to PREFIX.crt, .key and .pin, print the pin, and exit")
 	cli.Parse(s, os.Args[1:])
 	if *genIdentity != "" {
-		pin, err := realmproto.WriteIdentity(*genIdentity, "Sanctuary realm "+*id)
+		pin, err := realmproto.WriteIdentity(*genIdentity, "Sanctuary realm "+*o.id)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gen-identity:", err)
 			os.Exit(1)
@@ -49,24 +62,24 @@ func main() {
 		fmt.Println(pin)
 		return
 	}
-	log := cli.Logger(*logLevel)
+	log := cli.Logger(*o.logLevel)
 	cli.Report(log, s)
 	fail := func(err error) {
 		log.Error("realm link TLS", "err", err)
 		os.Exit(1)
 	}
 
-	identity, err := cli.KeyPair(cert, key, "realm identity (CERT, KEY; make one with -gen-identity)")
+	identity, err := cli.KeyPair(o.cert, o.key, "realm identity (CERT, KEY; make one with -gen-identity)")
 	if err != nil {
 		fail(err)
 	}
-	trust, err := cli.Trust(*gatewayPins, gatewayCA)
+	trust, err := cli.Trust(*o.gatewayPins, o.gatewayCA)
 	if err != nil {
 		fail(err)
 	}
-	serverName := *gatewayName
+	serverName := *o.gatewayName
 	if serverName == "" {
-		if h, _, err := net.SplitHostPort(*gateway); err == nil {
+		if h, _, err := net.SplitHostPort(*o.gateway); err == nil {
 			serverName = h
 		}
 	}
@@ -80,11 +93,11 @@ func main() {
 	// gateway tells players the realm has gone.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	log.Info("realm starting", "realm", *id, "gateway", *gateway)
-	err = realm.Run(ctx, realm.TLSDialer(*gateway, conf, *dialTimeout), realm.Config{
-		ID:      *id,
-		Name:    *name,
-		Build:   *build,
+	log.Info("realm starting", "realm", *o.id, "gateway", *o.gateway)
+	err = realm.Run(ctx, realm.TLSDialer(*o.gateway, conf, *o.dialTimeout), realm.Config{
+		ID:      *o.id,
+		Name:    *o.name,
+		Build:   *o.build,
 		Handler: realm.StubHandler,
 		Log:     log,
 	}, realm.Backoff{})

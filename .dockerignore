@@ -1,0 +1,9 @@
+# Only cmd/, internal/ and go.mod are copied into the build; keep everything
+# else, and above all any key material, out of the build context.
+*
+!go.mod
+!cmd/
+!internal/
+**/*.key
+**/*.pem
+**/testdata/fuzz/

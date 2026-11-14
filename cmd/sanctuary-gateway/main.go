@@ -32,30 +32,46 @@ import (
 	"sanctuary/internal/session"
 )
 
-func main() {
+// declare declares every setting. It is separate from main so tests can
+// check the example config files in deploy/ against the real settings.
+func declare() (*config.Set, settings) {
 	s := config.New("sanctuary-gateway")
-	var (
-		name       = s.String("NAME", "Sanctuary", "MUD name reported over MSSP")
-		host       = s.String("PUBLIC_HOST", "localhost", "public hostname, advertised in MSSP")
-		telnetAddr = s.String("TELNET", ":9000", "plain telnet listen address (empty disables)")
-		tlsAddr    = s.String("TELNETS", ":9010", "telnet+TLS listen address (empty disables)")
-		wsAddr     = s.String("WS", ":9020", "WebSocket listen address (empty disables)")
-		wsPlain    = s.Bool("WS_PLAIN", false, "serve ws:// instead of wss:// (local development only)")
-		origins    = s.String("WS_ORIGINS", "", "comma-separated allowed browser origins (default: same-origin only)")
-		tlsCert    = s.Blob("TLS_CERT", false, "player TLS certificate; a self-signed dev certificate is generated if unset")
-		tlsKey     = s.Blob("TLS_KEY", true, "player TLS private key")
-		maxClients = s.Int("MAX_CLIENTS", 1024, "maximum concurrent sessions")
-		maxPerHost = s.Int("MAX_PER_HOST", 32, "maximum concurrent sessions per remote IP")
-		logLevel   = s.String("LOG_LEVEL", "info", "debug, info, warn or error")
-		stubRealm  = s.Bool("STUB_REALM", true, "run the stub realm in-process over the in-memory link")
-		echoOnly   = s.Bool("ECHO", false, "stage-01 behaviour: echo in the gateway, no realm protocol")
+	return s, settings{
+		name:       s.String("NAME", "Sanctuary", "MUD name reported over MSSP"),
+		host:       s.String("PUBLIC_HOST", "localhost", "public hostname, advertised in MSSP"),
+		telnetAddr: s.String("TELNET", ":9000", "plain telnet listen address (empty disables)"),
+		tlsAddr:    s.String("TELNETS", ":9010", "telnet+TLS listen address (empty disables)"),
+		wsAddr:     s.String("WS", ":9020", "WebSocket listen address (empty disables)"),
+		wsPlain:    s.Bool("WS_PLAIN", false, "serve ws:// instead of wss:// (local development only)"),
+		origins:    s.String("WS_ORIGINS", "", "comma-separated allowed browser origins (default: same-origin only)"),
+		tlsCert:    s.Blob("TLS_CERT", false, "player TLS certificate; a self-signed dev certificate is generated if unset"),
+		tlsKey:     s.Blob("TLS_KEY", true, "player TLS private key"),
+		maxClients: s.Int("MAX_CLIENTS", 1024, "maximum concurrent sessions"),
+		maxPerHost: s.Int("MAX_PER_HOST", 32, "maximum concurrent sessions per remote IP"),
+		logLevel:   s.String("LOG_LEVEL", "info", "debug, info, warn or error"),
+		stubRealm:  s.Bool("STUB_REALM", true, "run the stub realm in-process over the in-memory link"),
+		echoOnly:   s.Bool("ECHO", false, "stage-01 behaviour: echo in the gateway, no realm protocol"),
 
-		realmListen = s.String("REALM_LISTEN", "", "realm port, mTLS only, e.g. 127.0.0.1:9030 (empty disables); keep it off the internet")
-		realmCert   = s.Blob("REALM_CERT", false, "gateway identity certificate for the realm port")
-		realmKey    = s.Blob("REALM_KEY", true, "gateway identity key for the realm port")
-		realmPins   = s.String("REALM_PINS", "", "comma-separated realm pins (sha256/...) or files of pins")
-		realmCA     = s.Blob("REALM_CA", false, "CA bundle whose client certificates realms may present")
-	)
+		realmListen: s.String("REALM_LISTEN", "", "realm port, mTLS only, e.g. 127.0.0.1:9030 (empty disables); keep it off the internet"),
+		realmCert:   s.Blob("REALM_CERT", false, "gateway identity certificate for the realm port"),
+		realmKey:    s.Blob("REALM_KEY", true, "gateway identity key for the realm port"),
+		realmPins:   s.String("REALM_PINS", "", "comma-separated realm pins (sha256/...) or files of pins"),
+		realmCA:     s.Blob("REALM_CA", false, "CA bundle whose client certificates realms may present"),
+	}
+}
+
+// settings are the gateway's operational settings.
+type settings struct {
+	name, host, telnetAddr, tlsAddr, wsAddr, origins, logLevel *string
+	wsPlain, stubRealm, echoOnly                               *bool
+	maxClients, maxPerHost                                     *int
+	tlsCert, tlsKey                                            config.Blob
+	realmListen, realmPins                                     *string
+	realmCert, realmKey, realmCA                               config.Blob
+}
+
+func main() {
+	s, o := declare()
 	genIdentity := s.Flags().String("gen-identity", "", "write a new realm-link identity to PREFIX.crt, .key and .pin, print the pin, and exit")
 	cli.Parse(s, os.Args[1:])
 	if *genIdentity != "" {
@@ -67,7 +83,7 @@ func main() {
 		fmt.Println(pin)
 		return
 	}
-	log := cli.Logger(*logLevel)
+	log := cli.Logger(*o.logLevel)
 	cli.Report(log, s)
 	fail := func(what string, err error) {
 		log.Error(what, "err", err)
@@ -76,11 +92,11 @@ func main() {
 
 	var cert tls.Certificate
 	var err error
-	if tlsCert.Set() || tlsKey.Set() {
-		cert, err = cli.KeyPair(tlsCert, tlsKey, "player TLS")
+	if o.tlsCert.Set() || o.tlsKey.Set() {
+		cert, err = cli.KeyPair(o.tlsCert, o.tlsKey, "player TLS")
 	} else {
 		log.Warn("no TLS_CERT given: using a generated self-signed certificate (development only)")
-		cert, err = gateway.SelfSigned([]string{*host, "localhost", "127.0.0.1", "::1"})
+		cert, err = gateway.SelfSigned([]string{*o.host, "localhost", "127.0.0.1", "::1"})
 	}
 	if err != nil {
 		fail("loading TLS certificate", err)
@@ -91,10 +107,10 @@ func main() {
 
 	var handler session.Handler = echo.Handler{}
 	var background sync.WaitGroup
-	if !*echoOnly {
+	if !*o.echoOnly {
 		hub := proxy.NewHub(proxy.HubConfig{Gateway: "dev", Log: log})
 		handler = proxy.Handler{Hub: hub}
-		if *stubRealm {
+		if *o.stubRealm {
 			gwEnd, realmEnd := realmproto.Pipe()
 			background.Add(2)
 			go func() {
@@ -121,12 +137,12 @@ func main() {
 				}
 			}()
 		}
-		if *realmListen != "" {
-			id, err := cli.KeyPair(realmCert, realmKey, "realm port identity (REALM_CERT, REALM_KEY; make one with -gen-identity)")
+		if *o.realmListen != "" {
+			id, err := cli.KeyPair(o.realmCert, o.realmKey, "realm port identity (REALM_CERT, REALM_KEY; make one with -gen-identity)")
 			if err != nil {
 				fail("realm port", err)
 			}
-			trust, err := cli.Trust(*realmPins, realmCA)
+			trust, err := cli.Trust(*o.realmPins, o.realmCA)
 			if err != nil {
 				fail("realm port", err)
 			}
@@ -134,7 +150,7 @@ func main() {
 			if err != nil {
 				fail("realm port", err)
 			}
-			l, err := net.Listen("tcp", *realmListen)
+			l, err := net.Listen("tcp", *o.realmListen)
 			if err != nil {
 				fail("realm port", err)
 			}
@@ -147,22 +163,22 @@ func main() {
 				}
 			}()
 		}
-		if !*stubRealm && *realmListen == "" {
+		if !*o.stubRealm && *o.realmListen == "" {
 			log.Warn("STUB_REALM off and no REALM_LISTEN: players will find no realm")
 		}
 	}
 
 	g := gateway.New(gateway.Config{
-		Name:        *name,
-		PublicHost:  *host,
-		TelnetAddr:  *telnetAddr,
-		TelnetsAddr: *tlsAddr,
-		WSAddr:      *wsAddr,
-		WSPlain:     *wsPlain,
-		WSOrigins:   cli.SplitList(*origins),
+		Name:        *o.name,
+		PublicHost:  *o.host,
+		TelnetAddr:  *o.telnetAddr,
+		TelnetsAddr: *o.tlsAddr,
+		WSAddr:      *o.wsAddr,
+		WSPlain:     *o.wsPlain,
+		WSOrigins:   cli.SplitList(*o.origins),
 		TLS:         gateway.TLSConfig(cert),
-		MaxClients:  *maxClients,
-		MaxPerHost:  *maxPerHost,
+		MaxClients:  *o.maxClients,
+		MaxPerHost:  *o.maxPerHost,
 		Handler:     handler,
 		Log:         log,
 	})

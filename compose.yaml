@@ -1,0 +1,49 @@
+# The gateway and the stub realm as separate containers, talking over the
+# realm protocol with mTLS: the reference small deployment. See
+# deploy/README.md. Start it with:
+#
+#   scripts/devkeys.sh            # once: identities in .dev/keys
+#   docker compose up --build
+#
+# Settings live in deploy/*.env. Any of them can be overridden from the
+# environment, so a secrets manager works unchanged:
+#   doppler run -- docker compose up
+
+name: sanctuary
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  # Run as your user so the mounted key files (mode 0600, owned by you) are
+  # readable inside the container.
+  user: "${SANCTUARY_UID:-1000}:${SANCTUARY_GID:-1000}"
+  restart: unless-stopped
+
+services:
+  gateway:
+    <<: *hardening
+    build: { context: ., dockerfile: docker/runtime/Dockerfile }
+    image: sanctuary-runtime:dev
+    command: ["/sanctuary-gateway"]
+    env_file: deploy/gateway.env
+    ports: ["9000:9000", "9010:9010", "9020:9020"]
+    # The realm port (9030) is deliberately not published.
+    secrets: [gateway_link_cert, gateway_link_key, realm_stub_pin]
+
+  realm-stub:
+    <<: *hardening
+    build: { context: ., dockerfile: docker/runtime/Dockerfile }
+    image: sanctuary-runtime:dev
+    command: ["/sanctuary-realm"]
+    env_file: deploy/realm-stub.env
+    depends_on: [gateway]
+    secrets: [realm_stub_cert, realm_stub_key, gateway_link_pin]
+
+secrets:
+  gateway_link_cert: { file: .dev/keys/gateway.crt }
+  gateway_link_key: { file: .dev/keys/gateway.key }
+  gateway_link_pin: { file: .dev/keys/gateway.pin }
+  realm_stub_cert: { file: .dev/keys/realm-stub.crt }
+  realm_stub_key: { file: .dev/keys/realm-stub.key }
+  realm_stub_pin: { file: .dev/keys/realm-stub.pin }
