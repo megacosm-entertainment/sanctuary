@@ -531,3 +531,77 @@ func TestRunRetriesAfterReject(t *testing.T) {
 		t.Fatal("Run did not return after cancel")
 	}
 }
+
+// ── Drain (protocol.md §8) ───────────────────────────────────
+
+// SIGTERM in a realm is a drain, not a dropped link: announce it, let each
+// player's handler say goodbye, hand each player back for the gateway to
+// hold, then send drained and close.
+func TestShutdownDrainsInOrder(t *testing.T) {
+	s := registered(t)
+	s.open(t, 1, realmproto.ClientInfo{})
+	s.cancel()
+	if d := rpt.Expect[*realmproto.Drain](s.gw); d.DeadlineMS <= 0 {
+		t.Fatalf("drain = %+v, want a positive deadline", d)
+	}
+	if txt := rpt.Expect[*realmproto.Text](s.gw); !strings.Contains(txt.Text, "shutting down") {
+		t.Fatalf("after drain the player got %+v, want the realm's goodbye", txt)
+	}
+	if c := rpt.Expect[*realmproto.SessionClose](s.gw); c.Session != 1 || c.Reason != realmproto.ClosedDrain {
+		t.Fatalf("session.close = %+v, want session 1 handed back with reason %q", c, realmproto.ClosedDrain)
+	}
+	rpt.Expect[*realmproto.Drained](s.gw)
+	s.gw.ExpectClosed()
+	if err := s.wait(t); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve after a drain = %v, want context.Canceled", err)
+	}
+}
+
+// A player arriving while the realm drains is handed straight back.
+func TestOpenDuringDrainHandedBack(t *testing.T) {
+	hold := make(chan struct{})
+	s := registered(t, func(c *realm.Config) {
+		c.Handler = session.HandlerFunc(func(ctx context.Context, sess *session.Session) {
+			<-hold // keep the drain waiting on this player
+		})
+	})
+	t.Cleanup(func() { close(hold) })
+	s.gw.Send(&realmproto.SessionOpen{Session: 1, Transport: "telnet"})
+	s.sync(t)
+	s.cancel()
+	rpt.Expect[*realmproto.Drain](s.gw)
+	s.gw.Send(&realmproto.SessionOpen{Session: 2, Transport: "telnet"})
+	c := rpt.Until[*realmproto.SessionClose](s.gw, func(c *realmproto.SessionClose) bool { return c.Session == 2 })
+	if c.Reason != realmproto.ClosedDrain {
+		t.Fatalf("session.close for a player opened mid-drain = %+v, want reason %q", c, realmproto.ClosedDrain)
+	}
+}
+
+// A handler that ignores shutdown cannot hold the realm past its deadline:
+// remaining players are handed back and the link closes anyway.
+func TestDrainDeadline(t *testing.T) {
+	const deadline = 100 * time.Millisecond
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	s := registered(t, func(c *realm.Config) {
+		c.DrainTimeout = deadline
+		c.Handler = session.HandlerFunc(func(ctx context.Context, sess *session.Session) {
+			select { // ignores ctx: only the transport closing ends it
+			case <-sess.Done():
+			case <-block:
+			}
+		})
+	})
+	s.gw.Send(&realmproto.SessionOpen{Session: 1, Transport: "telnet"})
+	s.sync(t)
+	start := time.Now()
+	s.cancel()
+	rpt.Expect[*realmproto.Drain](s.gw)
+	if c := rpt.Expect[*realmproto.SessionClose](s.gw); c.Session != 1 || c.Reason != realmproto.ClosedDrain {
+		t.Fatalf("session.close = %+v, want session 1 handed back at the deadline", c)
+	}
+	rpt.Expect[*realmproto.Drained](s.gw)
+	if d := time.Since(start); d < deadline || d > deadline+time.Second {
+		t.Fatalf("drained after %v, want about the %v deadline", d, deadline)
+	}
+}

@@ -248,6 +248,7 @@ type Realm struct {
 type attached struct {
 	s           *session.Session
 	realmClosed chan struct{} // the realm sent session.close
+	closeReason string        // its reason; set before realmClosed is closed
 	once        sync.Once
 }
 
@@ -296,7 +297,10 @@ func (r *Realm) run() error {
 			}
 		case *realmproto.SessionClose:
 			if a := r.session(v.Session); a != nil {
-				a.once.Do(func() { close(a.realmClosed) })
+				a.once.Do(func() {
+					a.closeReason = v.Reason
+					close(a.realmClosed)
+				})
 			}
 		case *realmproto.Ping:
 			if err := r.w.Send(&realmproto.Pong{N: v.N}); err != nil {

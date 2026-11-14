@@ -64,9 +64,12 @@ SANCTUARY_GATEWAY_PINS=$work/keys/gateway.pin
 SANCTUARY_CERT_FILE=$work/keys/realm-stub.crt
 SANCTUARY_LOG_LEVEL=debug
 ENV
-SANCTUARY_KEY="$(cat "$work/keys/realm-stub.key")" \
-    ./bin/sanctuary-realm -config "$work/realm.env" >"$rlog" 2>&1 &
-realm=$!
+start_realm() { # log file
+    SANCTUARY_KEY="$(cat "$work/keys/realm-stub.key")" \
+        ./bin/sanctuary-realm -config "$work/realm.env" >>"$1" 2>&1 &
+    realm=$!
+}
+start_realm "$rlog"
 for _ in $(seq 50); do
     grep -q '"msg":"realm registered"' "$log" && break
     if ! kill -0 "$realm" 2>/dev/null; then echo "realm exited:"; cat "$rlog"; exit 1; fi
@@ -97,6 +100,32 @@ logcheck "realm read its settings from the env file"     '"msg":"setting","name"
 logcheck "realm key came from the environment"         '"msg":"setting","name":"KEY","value":"\[secret\]","from":"env"' "$rlog"
 if grep -q "PRIVATE KEY" "$rlog"; then echo "FAIL  log: realm logged its private key"; status=1; else echo "PASS  log: private key never logged"; fi
 noerrors gateway "$log"
+
+echo "==> restarting the realm with a player connected (drain, hold, re-attach)"
+# A raw TCP player: it never answers telnet negotiation, so nothing is
+# compressed and its received text can be searched as is.
+held="$work/held.txt"
+exec 3<>/dev/tcp/127.0.0.1/19000
+cat <&3 >"$held" &
+reader=$!
+waitfor() { # file pattern
+    for _ in $(seq 50); do grep -q "$2" "$1" && return 0; sleep 0.1; done
+    return 1
+}
+waitfor "$held" "stub realm" || { echo "FAIL  player never reached the realm"; status=1; }
+kill -TERM "$realm"
+wait "$realm" || true
+realm=
+logcheck "realm drained on SIGTERM"                     '"msg":"drained"' "$rlog"
+logcheck "gateway saw the drain"                        '"msg":"realm drained"'
+if waitfor "$held" "unavailable for the moment"; then echo "PASS  player held while the realm was down"; else echo "FAIL  player held while the realm was down"; status=1; fi
+rlog2="$work/realm2.log"
+start_realm "$rlog2"
+if waitfor "$held" "Reconnected"; then echo "PASS  held player re-attached to the restarted realm"; else echo "FAIL  held player re-attached to the restarted realm"; status=1; fi
+exec 3>&-
+kill "$reader" 2>/dev/null || true
+wait "$reader" 2>/dev/null || true
+rlog="$rlog2"
 
 echo "==> stopping the gateway (graceful shutdown)"
 kill -TERM "$gw"

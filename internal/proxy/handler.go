@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"sanctuary/internal/realmproto"
@@ -11,126 +12,236 @@ import (
 
 // Messages the gateway itself sends a player.
 const (
-	msgConnecting = "Connecting you to a realm...\n"
-	msgNoRealm    = "No realm is available right now. Please try again later.\n"
-	msgRealmLost  = "\nThe realm has gone away. Please reconnect in a moment.\n"
-	msgShutdown   = "\nThe gateway is shutting down. Goodbye.\n"
+	msgConnecting   = "Connecting you to a realm...\n"
+	msgNoRealm      = "No realm is available right now. Please try again later.\n"
+	msgHoldFmt      = "\nThe realm is unavailable for the moment. Hold on: you will be reconnected when it is back (waiting up to %s).\n"
+	msgStillWaitFmt = "Still waiting for the realm to come back (up to %s more).\n"
+	msgReconnected  = "Reconnected.\n"
+	msgGaveUp       = "The realm did not come back in time. Please reconnect later.\n"
+	msgShutdown     = "\nThe gateway is shutting down. Goodbye.\n"
 )
 
 // Handler routes each player to a realm and relays their session both ways.
 // It replaces the stage-01 echo handler.
+//
+// When the player's realm drains or is lost, the player is held rather than
+// disconnected: the gateway owns the socket, so it tells them what is
+// happening and re-attaches them when the same realm registers again
+// (design §04, "Realm restarts should not disconnect players").
 type Handler struct {
 	Hub *Hub
 	// Realm is the realm to route to; empty means the first registered
 	// realm by id. Stage 03's lobby replaces this with the player's choice.
 	Realm string
-	// Wait is how long a player is held for a realm to register before
-	// being told none is available. Default 10s.
+	// Wait is how long a newly connected player waits for a realm to
+	// register before being told none is available. Default 10s.
 	Wait time.Duration
+	// Hold is how long a player whose realm went away is held for it to
+	// return. Default 2 minutes (protocol.md §8).
+	Hold time.Duration
 }
 
+// outcome is how one attachment to a realm ended.
+type outcome int
+
+const (
+	ended outcome = iota // the session is over
+	lost                 // the realm went away; hold the player
+)
+
 func (h Handler) ServeSession(ctx context.Context, s *session.Session) {
-	wait := h.Wait
+	wait, hold := h.Wait, h.Hold
 	if wait == 0 {
 		wait = 10 * time.Second
 	}
-	r, err := h.pick(ctx, s, wait)
-	if err != nil {
+	if hold == 0 {
+		hold = 2 * time.Minute
+	}
+
+	// One reader for the whole session: a session is read from one
+	// goroutine only, and attachments come and go.
+	in := &input{events: make(chan session.Inbound, 64), done: make(chan error, 1)}
+	go in.read(s)
+
+	r, ok := h.waitFor(ctx, s, in, h.Realm, wait, false)
+	if !ok {
 		return
 	}
-	a, err := r.attach(s)
-	if err != nil {
-		s.Send(session.Text{Text: msgRealmLost})
-		return
-	}
-	log := s.Log().With("realm", r.ID)
-	log.Info("routed to realm")
-
-	// Player events go to the realm from their own goroutine. Writer.Send
-	// never blocks, so a slow realm cannot stall this player's reads, and
-	// one player's input cannot hold up anyone else's.
-	inputDone := make(chan error, 1)
-	go func() { inputDone <- relayInput(s, r) }()
-
-	reason := realmproto.ClosedDisconnected
-	select {
-	case <-ctx.Done():
-		s.Send(session.Text{Text: msgShutdown})
-		reason = realmproto.ClosedShutdown
-	case <-a.realmClosed:
-		reason = "" // the realm ended it; nothing to tell the realm
-	case <-r.Gone():
-		s.Send(session.Text{Text: msgRealmLost})
-		reason = ""
-	case err := <-inputDone:
-		switch {
-		case errors.Is(err, realmproto.ErrSessionBacklog):
-			reason = realmproto.ClosedOverflow
-		case errors.Is(err, realmproto.ErrStalled) || errors.Is(err, realmproto.ErrWriterClosed):
-			// The realm's link is failing; this player noticed first.
-			s.Send(session.Text{Text: msgRealmLost})
-			reason = ""
+	for {
+		if h.relay(ctx, s, in, r) == ended {
+			return
 		}
-	case <-s.Done():
-		if errors.Is(s.Err(), session.ErrOverflow) {
-			reason = realmproto.ClosedOverflow
+		s.Send(session.Text{Text: fmt.Sprintf(msgHoldFmt, spoken(hold))})
+		s.Log().Info("holding player for realm", "realm", r.ID, "for", hold)
+		if r, ok = h.waitFor(ctx, s, in, r.ID, hold, true); !ok {
+			return
 		}
+		s.Send(session.Text{Text: msgReconnected})
 	}
-	r.detach(s.ID, reason)
-	log.Info("left realm", "reason", reason)
 }
 
-func (h Handler) pick(ctx context.Context, s *session.Session, wait time.Duration) (*Realm, error) {
-	// Answer at once when a realm is up; say something if the player has
-	// to wait, so a screen-reader user is not left with silence.
-	fast, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	r, err := h.Hub.pick(fast, h.Realm)
-	cancel()
-	if err == nil {
-		return r, nil
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	s.Send(session.Text{Text: msgConnecting})
-	slow, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
-	r, err = h.Hub.pick(slow, h.Realm)
-	if err != nil {
-		if ctx.Err() != nil {
-			s.Send(session.Text{Text: msgShutdown})
-		} else {
-			s.Send(session.Text{Text: msgNoRealm})
-		}
-		return nil, err
-	}
-	return r, nil
+type input struct {
+	events chan session.Inbound
+	done   chan error
 }
 
-// relayInput forwards a player's events until their session ends or the
-// realm cannot take more of this player's input.
-func relayInput(s *session.Session, r *Realm) error {
+func (in *input) read(s *session.Session) {
 	for {
 		ev, err := s.Recv()
 		if err != nil {
-			return err
+			in.done <- err
+			return
 		}
-		var m realmproto.Message
-		switch v := ev.(type) {
-		case session.Line:
-			m = &realmproto.Input{Session: s.ID, Text: v.Text}
-		case session.GMCP:
-			m = &realmproto.GMCP{Session: s.ID, Package: v.Package, Data: v.Data}
-		case session.ClientUpdate:
-			m = &realmproto.Client{Session: s.ID, Client: realmproto.ClientFrom(v.Info)}
-		default:
-			continue
-		}
-		if err := r.w.Send(m); err != nil {
-			if errors.Is(err, realmproto.ErrInvalidField) {
-				continue // e.g. a GMCP payload over the protocol's cap: drop it
-			}
-			return err
+		select {
+		case in.events <- ev:
+		case <-s.Done():
+			return
 		}
 	}
+}
+
+// waitFor waits up to d for realm id (any realm when id is empty) to be
+// available, answering the player meanwhile. holding is true when the
+// player is already in a game and waiting for their realm to return.
+func (h Handler) waitFor(ctx context.Context, s *session.Session, in *input, id string, d time.Duration, holding bool) (*Realm, bool) {
+	// Answer at once when the realm is up; otherwise say something, so a
+	// screen-reader user is not left with silence.
+	quick, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	r, err := h.Hub.pick(quick, id)
+	cancel()
+	if err == nil {
+		return r, true
+	}
+	if !holding {
+		s.Send(session.Text{Text: msgConnecting})
+	}
+
+	until := time.Now().Add(d)
+	wctx, cancel := context.WithDeadline(ctx, until)
+	defer cancel()
+	found := make(chan *Realm, 1)
+	go func() {
+		if r, err := h.Hub.pick(wctx, id); err == nil {
+			found <- r
+		}
+	}()
+	for {
+		select {
+		case r := <-found:
+			return r, true
+		case <-wctx.Done():
+			switch {
+			case ctx.Err() != nil:
+				s.Send(session.Text{Text: msgShutdown})
+			case holding:
+				s.Send(session.Text{Text: msgGaveUp})
+			default:
+				s.Send(session.Text{Text: msgNoRealm})
+			}
+			return nil, false
+		case ev := <-in.events:
+			if _, ok := ev.(session.Line); ok {
+				s.Send(session.Text{Text: fmt.Sprintf(msgStillWaitFmt, spoken(time.Until(until)))})
+			}
+		case <-in.done:
+			return nil, false // the player left while waiting
+		case <-s.Done():
+			return nil, false
+		}
+	}
+}
+
+// relay attaches the player to r and passes events both ways until the
+// session ends or the realm goes away.
+func (h Handler) relay(ctx context.Context, s *session.Session, in *input, r *Realm) outcome {
+	a, err := r.attach(s)
+	if err != nil {
+		return lost
+	}
+	log := s.Log().With("realm", r.ID)
+	log.Info("routed to realm")
+	leave := func(reason, why string) {
+		r.detach(s.ID, reason)
+		log.Info("left realm", "reason", reason, "why", why)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.Send(session.Text{Text: msgShutdown})
+			leave(realmproto.ClosedShutdown, "gateway shutdown")
+			return ended
+		case <-a.realmClosed:
+			if a.closeReason == realmproto.ClosedDrain {
+				leave("", "realm draining")
+				return lost
+			}
+			leave("", "realm ended the session")
+			return ended
+		case <-r.Gone():
+			leave("", "realm link lost")
+			return lost
+		case <-in.done:
+			leave(realmproto.ClosedDisconnected, "player disconnected")
+			return ended
+		case <-s.Done():
+			reason := realmproto.ClosedDisconnected
+			if errors.Is(s.Err(), session.ErrOverflow) {
+				reason = realmproto.ClosedOverflow
+			}
+			leave(reason, "session ended")
+			return ended
+		case ev := <-in.events:
+			m := toRealm(s.ID, ev)
+			if m == nil {
+				continue
+			}
+			// Writer.Send never blocks, so a slow realm cannot stall this
+			// player's reads, and one player's input cannot hold up anyone
+			// else's.
+			switch err := r.w.Send(m); {
+			case err == nil, errors.Is(err, realmproto.ErrInvalidField):
+				// sent, or dropped (e.g. GMCP over the protocol's cap)
+			case errors.Is(err, realmproto.ErrSessionBacklog):
+				leave(realmproto.ClosedOverflow, "input backlog")
+				return ended
+			default:
+				// The realm's link is failing; this player noticed first.
+				leave("", "realm link failing")
+				return lost
+			}
+		}
+	}
+}
+
+func toRealm(id uint64, ev session.Inbound) realmproto.Message {
+	switch v := ev.(type) {
+	case session.Line:
+		return &realmproto.Input{Session: id, Text: v.Text}
+	case session.GMCP:
+		return &realmproto.GMCP{Session: id, Package: v.Package, Data: v.Data}
+	case session.ClientUpdate:
+		return &realmproto.Client{Session: id, Client: realmproto.ClientFrom(v.Info)}
+	}
+	return nil
+}
+
+// spoken renders a wait the way a person would say it ("2 minutes",
+// "45 seconds"): players read these, often through a screen reader, so
+// "2m0s" will not do.
+func spoken(d time.Duration) string {
+	unit := func(n int64, one string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return fmt.Sprintf("%d %ss", n, one)
+	}
+	if d >= time.Minute {
+		return unit(int64((d+30*time.Second)/time.Minute), "minute")
+	}
+	s := int64((d + time.Second/2) / time.Second)
+	if s < 1 {
+		s = 1
+	}
+	return unit(s, "second")
 }

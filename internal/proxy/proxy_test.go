@@ -299,9 +299,10 @@ func TestDrainingRealmGetsNoNewPlayers(t *testing.T) {
 func TestRealmLossTellsPlayers(t *testing.T) {
 	h := newHub(t, proxy.HubConfig{})
 	realm := h.register(t, "live")
-	p, _ := player(t, h, realm, proxy.Handler{})
+	p, _ := player(t, h, realm, proxy.Handler{Hold: 100 * time.Millisecond})
 	realm.Conn.Close()
-	p.ExpectText("realm has gone away")
+	p.ExpectText("unavailable for the moment") // held, not dropped
+	p.ExpectText("did not come back")          // and released when the hold expires
 	p.ExpectClosed()
 	if n := len(h.Realms()); n != 0 {
 		t.Fatalf("%d realms still registered after the link was lost", n)
@@ -389,14 +390,15 @@ func TestInputFloodDisconnectsOnlyThatPlayer(t *testing.T) {
 func TestStuckRealmIsDropped(t *testing.T) {
 	h := newHub(t, proxy.HubConfig{Writer: realmproto.WriterLimits{SessionBytes: 1 << 20, LinkBytes: 8192}})
 	stalledRealm(t, h, "stuck")
-	p := sessiontest.New(t, proxy.Handler{Hub: h.Hub, Realm: "stuck"})
+	p := sessiontest.New(t, proxy.Handler{Hub: h.Hub, Realm: "stuck", Hold: 100 * time.Millisecond})
 	line := strings.Repeat("x", 500)
 	for i := 0; i < 40; i++ {
 		if errors.Is(p.Client.Send(session.Line{Text: line}), session.ErrClosed) {
 			break
 		}
 	}
-	p.ExpectText("realm has gone away")
+	p.ExpectText("unavailable for the moment") // held, not dropped
+	p.ExpectText("did not come back")          // and released when the hold expires
 	p.ExpectClosed()
 }
 
@@ -439,8 +441,94 @@ func TestStalledRealmDoesNotBlockGatewayReader(t *testing.T) {
 func TestSilentRealmDropped(t *testing.T) {
 	h := newHub(t, proxy.HubConfig{Keepalive: realmproto.Keepalive{Idle: 30 * time.Millisecond, Grace: 30 * time.Millisecond}})
 	realm := h.register(t, "quiet")
-	p, _ := player(t, h, realm, proxy.Handler{})
-	rpt.Expect[*realmproto.Ping](realm) // never answered
-	p.ExpectText("realm has gone away")
+	p, _ := player(t, h, realm, proxy.Handler{Hold: 100 * time.Millisecond})
+	rpt.Expect[*realmproto.Ping](realm)        // never answered
+	p.ExpectText("unavailable for the moment") // held, not dropped
+	p.ExpectText("did not come back")          // and released when the hold expires
 	p.ExpectClosed()
+}
+
+// ── Holding players (protocol.md §8) ─────────────────────────
+
+// A realm that comes back gets its held players again, as fresh sessions:
+// the player never lost their connection.
+func TestHeldPlayerReattachedWhenRealmReturns(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	first := h.register(t, "live")
+	p, open := player(t, h, first, proxy.Handler{Hold: rpt.Timeout})
+	first.Conn.Close() // the realm crashes
+	p.ExpectText("unavailable for the moment")
+
+	second := h.register(t, "live") // and restarts
+	reopen := rpt.Expect[*realmproto.SessionOpen](second)
+	if reopen.Session != open.Session {
+		t.Fatalf("re-attached as session %d, want the held player's %d", reopen.Session, open.Session)
+	}
+	p.ExpectText("Reconnected")
+	second.Send(&realmproto.Text{Session: reopen.Session, Text: "Welcome back.\n"})
+	p.ExpectText("Welcome back")
+	p.Type("hello again")
+	if in := rpt.Expect[*realmproto.Input](second); in.Text != "hello again" {
+		t.Fatalf("input after re-attach = %+v", in)
+	}
+}
+
+// A drain hands players back instead of ending them; they are held through
+// the restart and re-attached.
+func TestDrainedPlayersHeldAndReattached(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, open := player(t, h, realm, proxy.Handler{Hold: rpt.Timeout})
+	realm.Send(&realmproto.Drain{DeadlineMS: 1000})
+	realm.Send(&realmproto.Text{Session: open.Session, Text: "The realm is shutting down.\n"})
+	realm.Send(&realmproto.SessionClose{Session: open.Session, Reason: realmproto.ClosedDrain})
+	realm.Send(&realmproto.Drained{})
+	p.ExpectText("realm is shutting down")
+	p.ExpectText("unavailable for the moment")
+	select {
+	case <-p.Session.Done():
+		t.Fatal("a drained player was disconnected instead of held")
+	default:
+	}
+	next := h.register(t, "live")
+	if reopen := rpt.Expect[*realmproto.SessionOpen](next); reopen.Session != open.Session {
+		t.Fatalf("re-attached session %d, want %d", reopen.Session, open.Session)
+	}
+	p.ExpectText("Reconnected")
+}
+
+// A player who types while held gets an answer, not silence.
+func TestInputWhileHeldIsAnswered(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, _ := player(t, h, realm, proxy.Handler{Hold: rpt.Timeout})
+	realm.Conn.Close()
+	p.ExpectText("unavailable for the moment")
+	p.Type("hello?")
+	p.ExpectText("Still waiting")
+}
+
+func TestShutdownWhileHeld(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, _ := player(t, h, realm, proxy.Handler{Hold: rpt.Timeout})
+	realm.Conn.Close()
+	p.ExpectText("unavailable for the moment")
+	p.Shutdown()
+	p.ExpectText("gateway is shutting down")
+	p.ExpectClosed()
+}
+
+// A held player's realm, not just any realm, is what they wait for.
+func TestHeldPlayerWaitsForTheirRealm(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	home := h.register(t, "home")
+	p, _ := player(t, h, home, proxy.Handler{Realm: "home", Hold: rpt.Timeout})
+	home.Conn.Close()
+	p.ExpectText("unavailable for the moment")
+	other := h.register(t, "other")
+	other.Send(&realmproto.Ping{N: 1})
+	if pong := rpt.Expect[*realmproto.Pong](other); pong.N != 1 {
+		t.Fatal("realm other received something before its pong: the held player was moved to it")
+	}
 }

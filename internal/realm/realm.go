@@ -48,6 +48,11 @@ type Config struct {
 	// Keepalive pings the gateway on a quiet link and ends a link that has
 	// gone silent (protocol.md §8). Zero fields take the defaults.
 	Keepalive realmproto.Keepalive
+
+	// DrainTimeout bounds the shutdown drain: players are told and handed
+	// back, then the link closes, within this. Default 20s, inside the 30s
+	// grace an orchestrator usually allows between SIGTERM and SIGKILL.
+	DrainTimeout time.Duration
 }
 
 // RejectedError is returned by Serve when the gateway refuses the realm.
@@ -64,8 +69,10 @@ func (e *RejectedError) Error() string {
 var ErrProtocol = errors.New("realm: protocol violation by gateway")
 
 // Serve runs one link until it ends: the gateway sends shutdown (nil), the
-// link fails (that error), or ctx is cancelled (ctx.Err()). Every player
-// session has ended by the time Serve returns.
+// link fails (that error), or ctx is cancelled (ctx.Err()), which drains
+// the link first. Every player session has ended by the time Serve returns,
+// except, after a drain, a handler that ignored its context for longer than
+// DrainTimeout: the realm is exiting, and is not held up by it.
 func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 	cfg = withDefaults(cfg)
 	l := &link{
@@ -78,11 +85,12 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 		ka:      cfg.Keepalive,
 	}
 	defer l.w.Close()
-	// Cancelling ctx closes the link, which unblocks Recv, including while
-	// the handshake waits for welcome.
+	// During the handshake, cancelling ctx just closes the link, which
+	// unblocks Recv.
 	stop := context.AfterFunc(ctx, func() { c.Close() })
-	defer stop()
-	if err := l.handshake(); err != nil {
+	err := l.handshake()
+	stop()
+	if err != nil || ctx.Err() != nil {
 		c.Close()
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -91,10 +99,22 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 	}
 	l.log.Info("registered with gateway")
 
-	hctx, cancel := context.WithCancel(ctx)
+	// Handlers get their own context: on shutdown the realm announces the
+	// drain first, then tells handlers to finish (protocol.md §8).
+	hctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	drained := make(chan struct{})
+	stopDrain := context.AfterFunc(ctx, func() {
+		defer close(drained)
+		l.drain(cancel)
+	})
+	defer func() {
+		if !stopDrain() {
+			<-drained // a drain started; let it finish before returning
+		}
+	}()
 
-	err := l.run(hctx)
+	err = l.run(hctx)
 	switch {
 	case ctx.Err() != nil:
 		err = ctx.Err()
@@ -106,7 +126,20 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 	c.Close()
 	l.closeAll()
 	cancel()
-	l.reg.Wait()
+	if ctx.Err() == nil {
+		l.reg.Wait()
+		return err
+	}
+	// Shutting down: the drain has handed every player back, but a handler
+	// that ignores its context could still be running. Give it the drain
+	// deadline, then let the process exit rather than hang on it.
+	waited := make(chan struct{})
+	go func() { l.reg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(l.cfg.DrainTimeout):
+		l.log.Warn("session handlers still running after the drain; not waiting for them")
+	}
 	return err
 }
 
@@ -119,6 +152,9 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.HandshakeTimeout == 0 {
 		cfg.HandshakeTimeout = 5 * time.Second
+	}
+	if cfg.DrainTimeout == 0 {
+		cfg.DrainTimeout = 20 * time.Second
 	}
 	if cfg.InputBuffer == 0 {
 		cfg.InputBuffer = 256
@@ -134,9 +170,11 @@ type link struct {
 	w    *realmproto.Writer // the only writer to conn
 	ka   realmproto.Keepalive
 
-	mu      sync.Mutex
-	players map[uint64]*player
-	unknown int // messages of types this version does not know
+	mu       sync.Mutex
+	players  map[uint64]*player
+	unknown  int           // messages of types this version does not know
+	draining bool          // shutting down: no new players; players are handed back
+	allGone  chan struct{} // closed when the last player leaves during a drain
 }
 
 func (l *link) handshake() error {
@@ -218,6 +256,13 @@ func (l *link) open(ctx context.Context, o *realmproto.SessionOpen) error {
 		// The gateway never reuses an id while a link is up (protocol.md §5).
 		return fmt.Errorf("%w: session %d opened twice", ErrProtocol, o.Session)
 	}
+	if l.draining {
+		// Sent before the gateway saw our drain: hand the player straight
+		// back, to be held for this realm's return.
+		l.mu.Unlock()
+		l.w.Send(&realmproto.SessionClose{Session: o.Session, Reason: realmproto.ClosedDrain})
+		return nil
+	}
 	p := &player{
 		id:     o.Session,
 		link:   l,
@@ -264,6 +309,10 @@ func (l *link) deliver(id uint64, ev session.Inbound) {
 func (l *link) forget(id uint64) {
 	l.mu.Lock()
 	delete(l.players, id)
+	if l.draining && len(l.players) == 0 && l.allGone != nil {
+		close(l.allGone)
+		l.allGone = nil
+	}
 	l.mu.Unlock()
 }
 
@@ -350,8 +399,57 @@ func (p *player) WriteEvent(o session.Outbound) error {
 // Close is called by the session when its handler is done: the realm ends
 // the player, so the gateway is asked to disconnect them.
 func (p *player) Close() error {
-	p.closeWith("")
+	reason := ""
+	p.link.mu.Lock()
+	if p.link.draining {
+		reason = realmproto.ClosedDrain // handed back, not quitting
+	}
+	p.link.mu.Unlock()
+	p.closeWith(reason)
 	return nil
+}
+
+// drain is the shutdown sequence (protocol.md §8, design §04 "Graceful
+// shutdown"): announce it, stop taking players, let each handler say
+// goodbye and end (each player is handed back with reason "drain"), then
+// send drained and close the link, all within DrainTimeout.
+func (l *link) drain(stopHandlers context.CancelFunc) {
+	deadline := l.cfg.DrainTimeout
+	// Wait on the player table, not the handler WaitGroup: the table is
+	// updated under l.mu, so a player opened just before the drain is
+	// counted, and nothing calls Add while this waits.
+	done := make(chan struct{})
+	l.mu.Lock()
+	l.draining = true
+	n := len(l.players)
+	if n == 0 {
+		close(done)
+	} else {
+		l.allGone = done
+	}
+	l.mu.Unlock()
+	l.log.Info("draining", "players", n, "deadline", deadline)
+	l.w.Send(&realmproto.Drain{DeadlineMS: deadline.Milliseconds()})
+	stopHandlers()
+
+	select {
+	case <-done:
+	case <-time.After(deadline):
+		l.mu.Lock()
+		left := make([]*player, 0, len(l.players))
+		for _, p := range l.players {
+			left = append(left, p)
+		}
+		l.mu.Unlock()
+		l.log.Warn("drain deadline passed; handing back remaining players", "players", len(left))
+		for _, p := range left {
+			p.closeWith(realmproto.ClosedDrain)
+		}
+	}
+	l.w.Send(&realmproto.Drained{})
+	l.w.Close() // flush every goodbye and session.close, then the link goes
+	l.conn.Close()
+	l.log.Info("drained")
 }
 
 func (p *player) closeWith(reason string) {

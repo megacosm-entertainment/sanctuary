@@ -69,8 +69,9 @@ and telnet option lists stay in the gateway, so they no longer appear).
 
 Remaining:
 
-1. Drain on SIGTERM, and holding players when a realm is lost, re-offering
-   them when it returns (protocol.md §8).
+1. Done: drain on SIGTERM, and holding players when a realm drains or is
+   lost, re-attaching them when it returns (protocol.md §8); the smoke test
+   restarts the realm under a connected player.
 2. ASCII fallback for clients that have not claimed UTF-8.
 3. Done: settings from flags, environment and env files (`internal/config`),
    secrets kept out of files; the runtime image (`docker/runtime`) and

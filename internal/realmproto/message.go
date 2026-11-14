@@ -126,6 +126,10 @@ const (
 	ClosedDisconnected = "disconnected"
 	ClosedOverflow     = "overflow"
 	ClosedShutdown     = "shutdown"
+	// ClosedDrain (realm to gateway, in session.close): the realm is
+	// draining and hands the player back; the gateway holds them for the
+	// realm's return rather than disconnecting them (protocol.md §8).
+	ClosedDrain = "drain"
 )
 
 // ── Sessions, realm to gateway (protocol.md §5) ─────────────

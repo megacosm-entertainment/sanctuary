@@ -136,7 +136,7 @@ lifetime and never reused while a link is up.
 | `prompt` | `session`, `text` | Output that expects input; telnet ends it with EOR. |
 | `gmcp` | `session`, `package`, `data` | GMCP to the client, discarded if the client has no GMCP. |
 | `input.mode` | `session`, `hidden` | Stop or resume local echo (password entry). |
-| `session.close` | `session`, `reason` | Disconnect the player after their queued output is sent. |
+| `session.close` | `session`, `reason` | Disconnect the player after their queued output is sent. With reason `drain`, the player is handed back instead: the gateway holds them for this realm's return (§8). |
 
 Rules:
 
@@ -206,9 +206,13 @@ not forwarded, and `IPADDRESS` never is.
   `session.closed` (reason `shutdown`) for each session after its output is
   flushed, then closes the link.
 - **Realm drain** (design §04, "Graceful shutdown"). On SIGTERM the realm
-  sends `{"type": "drain", "deadline_ms": N}`: it accepts no new sessions,
-  tells its players, saves, then sends `session.close` for each and finally
-  `{"type": "drained"}`. The gateway then closes the link.
+  sends `{"type": "drain", "deadline_ms": N}`, routes no new players (one
+  that arrives anyway is handed straight back), tells its players, saves,
+  and hands each back with `session.close` reason `drain`. Then it sends
+  `{"type": "drained"}` and closes the link. All of this happens within the
+  deadline (default 20 s, inside a typical 30 s SIGTERM grace); players
+  still attached at the deadline are handed back regardless. The gateway
+  holds handed-back players as for a lost realm, below.
 
 - **Realm lost** (crash or network, no drain). Players stay connected to
   the gateway and are told the realm is unavailable. When the realm
