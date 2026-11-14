@@ -116,6 +116,28 @@ change it at their next login. `scripts/account.sh help` lists every
 command. Outside compose, `bin/sanctuary-gateway account ...` works on
 `data/`.
 
+## Players' addresses
+
+The gateway limits connections and login attempts per address
+(`MAX_PER_HOST`, the login and sign-up throttles) and logs each session's
+address, so it must see players' real addresses.
+
+- **Rootful Docker or Podman:** published ports keep the client's address.
+  Nothing to do.
+- **Rootless Podman:** its default port forwarder (rootlessport) makes every
+  player appear to come from the Podman network (`10.89.0.x`).
+  `scripts/compose.sh` notices rootless Podman and adds
+  `compose.rootless.yaml`: the gateway uses pasta networking, which keeps
+  addresses, and the realm shares the gateway's network namespace and dials
+  the realm port on loopback. Set `SANCTUARY_ROOTLESS=0` or `1` to override
+  the detection.
+- **Behind a load balancer or proxy:** it must not hide addresses either.
+  The gateway does not read PROXY protocol headers or `X-Forwarded-For`
+  (both are claims it cannot check); forward at the network level instead.
+
+Check it by connecting from another machine and reading the gateway's
+`session opened` log line: `remote` should be that machine's address.
+
 ## Keys and trust
 
 `scripts/devkeys.sh` makes a pinned identity for the gateway and for the

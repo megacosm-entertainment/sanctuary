@@ -1,0 +1,29 @@
+# Override for rootless Podman, added by scripts/compose.sh when it finds
+# rootless Podman (SANCTUARY_ROOTLESS=1 or 0 forces it either way).
+#
+# Rootless Podman forwards a bridge network's published ports through
+# rootlessport, which opens a new connection into the container: the
+# gateway would see every player as coming from the Podman network
+# (10.89.0.x), so per-address limits (MAX_PER_HOST, login and sign-up
+# throttles) would treat all players as one, and logs could not tell them
+# apart. pasta forwards connections with their source address intact.
+#
+# A pasta container is not on the compose network, so the realm joins the
+# gateway's network namespace instead and dials the realm port on
+# loopback. The realm port is still not published.
+
+services:
+  gateway:
+    network_mode: pasta
+
+  realm-stub:
+    network_mode: "service:gateway"
+    environment:
+      SANCTUARY_GATEWAY: "127.0.0.1:9030"
+    # Sharing the gateway's namespace, the realm must restart with it: a
+    # restarted gateway has a new namespace, and the realm would otherwise
+    # keep dialling loopback in the old one.
+    depends_on:
+      gateway:
+        condition: service_started
+        restart: true

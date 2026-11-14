@@ -36,6 +36,18 @@ else
     exit 1
 fi
 
+# Rootless Podman: compose.rootless.yaml keeps players' real addresses.
+files=()
+rootless="${SANCTUARY_ROOTLESS:-}"
+if [ -z "$rootless" ] && [ "${compose[0]}" = podman ]; then
+    [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = true ] && rootless=1
+fi
+if [ "$rootless" = 1 ]; then
+    files=(-f compose.yaml -f compose.rootless.yaml)
+    echo "==> rootless Podman: pasta networking, so the gateway sees players' addresses"
+fi
+compose+=("${files[@]+"${files[@]}"}")
+
 if [ -z "$doppler_config" ]; then
     [ -e .dev/env/gateway.env ] || scripts/devkeys.sh >/dev/null
     exec "${compose[@]}" "$@"
