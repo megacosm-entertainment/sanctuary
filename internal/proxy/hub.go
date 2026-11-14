@@ -274,6 +274,7 @@ type attached struct {
 	realmClosed chan struct{} // the realm sent session.close
 	closeReason string        // its reason; set before realmClosed is closed
 	hidden      atomic.Bool   // the realm last asked for hidden input
+	prompt      atomic.Value  // string: the realm's last prompt, repeated after a gateway command
 	once        sync.Once
 }
 
@@ -325,7 +326,9 @@ func (r *Realm) run() error {
 			}
 		case *realmproto.Prompt:
 			if a := r.session(v.Session); a != nil {
-				a.s.Send(session.Prompt{Text: sanitize.Server(v.Text)})
+				p := sanitize.Server(v.Text)
+				a.prompt.Store(p)
+				a.s.Send(session.Prompt{Text: p})
 			}
 		case *realmproto.GMCP:
 			if a := r.session(v.Session); a != nil {

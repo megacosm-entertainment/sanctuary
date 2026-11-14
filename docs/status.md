@@ -52,13 +52,13 @@ Done:
 - Staff commands, `sanctuary-gateway account list|show|create|reset|invite|role|disable|enable`: the same settings as the gateway, safe while it runs (the store's lock and revision checks). `create` and `reset` print a temporary password that must be changed at the next login; `reset -totp` removes a lost authenticator; reserved names need `-allow-reserved`. Changes apply at the next login: a player already connected stays connected (see open items). Under compose, `scripts/account.sh` runs them (deploy/README.md).
 - Account commands in the lobby (`help` lists them): `password` changes it; `totp` sets up an authenticator (key in groups of four and an `otpauth://` link; turned on only after a code from the app checks out; ten recovery codes shown once); `totp off` removes it and `codes` replaces the recovery codes. Each asks for the password again, and with an authenticator a current code too, so a session left logged in cannot be used to take the account over. Failures go back to the lobby, through the same throttle as logins. The issuer shown in the app is `SANCTUARY_NAME`.
 - Gateway commands: a line starting with the command prefix and a letter (`>lobby`, `>help`, `>realms`, `>quit`) is the gateway's and never reaches a realm, so the prefix is reserved (protocol.md §5a). `>lobby` leaves a realm, also while held for one that went away. `> text` with a space is ordinary input, and so is everything typed while a realm hides input. In the lobby the same commands work bare or prefixed. The prefix is `SANCTUARY_GATEWAY_CMD_PREFIX` (default `>`, one ASCII punctuation character) and reaches realms in `welcome`. The stub's own commands lost their slash: `info`, `secret`, `quit`, `help`.
+- Tested live (2026-11-14) through compose with Doppler stg, from MUSHclient: sign-up, TOTP set-up with Authy and login with a code, `>lobby`/`>help`/`>realms`/`>quit`, and `scripts/account.sh list`. The test found three problems, all fixed: Authy held only 21 of the key's 32 characters (set-up now says so when a code matches a shortened key), the TLS port named in the warning and MSSP was the container's, not the published one (`PUBLIC_*_PORT`), and `compose exec` fails under rootless Podman (`scripts/account.sh` uses `compose run`). Authy's "token format invalid" on a QR code is not yet explained.
 
 Try it: `scripts/run.sh`, connect, type `new`, and choose a name and password. Accounts are kept in `data/` (git-ignored); delete it to start over.
 
 Next:
 
-1. A live test of TOTP set-up and login with a real authenticator app.
-2. `Char.Login` over GMCP, then OAuth.
+1. `Char.Login` over GMCP, then OAuth.
 
 ## Stage 02: internal session protocol and a stub world server (done)
 

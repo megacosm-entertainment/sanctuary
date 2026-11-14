@@ -245,6 +245,11 @@ func (h Handler) relay(ctx context.Context, s *session.Session, in *session.Inbo
 					leave(realmproto.ClosedQuit, "player quit")
 					return ended
 				case stay:
+					// The realm never saw the line, so it will not prompt again:
+					// repeat its last prompt, so the player is not left without one.
+					if p, ok := a.prompt.Load().(string); ok && p != "" {
+						s.Send(session.Prompt{Text: p})
+					}
 					continue
 				}
 			}

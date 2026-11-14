@@ -173,3 +173,20 @@ func TestHeldCommandOutcomes(t *testing.T) {
 		})
 	}
 }
+
+// The realm never sees a gateway command, so it will not prompt again; the
+// gateway repeats the realm's last prompt after answering.
+func TestPromptRepeatedAfterGatewayCommand(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, open := player(t, h, realm, proxy.Handler{})
+	realm.Send(&realmproto.Prompt{Session: open.Session, Text: "HP 10> "})
+	if got := sessiontest.ExpectNext[session.Prompt](p); got.Text != "HP 10> " {
+		t.Fatalf("prompt %q", got.Text)
+	}
+	p.Type(">help")
+	sessiontest.ExpectNext[session.Text](p)
+	if got := sessiontest.ExpectNext[session.Prompt](p); got.Text != "HP 10> " {
+		t.Fatalf("after >help, prompt %q, want the realm's last", got.Text)
+	}
+}
