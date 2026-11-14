@@ -37,6 +37,16 @@ conflict: security, then accessibility, then admin and authoring.
   and GMCP (GMCP needs a plugin), so features must not depend on them.
 - Red-team rounds 1 and 2 are in [security/redteam-log.md](security/redteam-log.md).
 
+## Stage 03: accounts, auth and the lobby (in progress)
+
+Decided (2026-11-14): Argon2id passwords via `golang.org/x/crypto`; plain-telnet logins allowed with a warning, `SANCTUARY_REFUSE_PLAINTEXT_LOGIN` to refuse them; sign-up mode a gateway setting, `SANCTUARY_SIGNUP=open|invite|staff` (default open); OAuth after password and TOTP work end to end; our own RFC 6238 TOTP rather than a library.
+
+Done:
+
+- `internal/account`: Argon2id hashing (bounded concurrency, no timing enumeration), TOTP (RFC 6238 vectors, replay protection), secrets sealed at rest (AES-GCM, bound to the account), recovery codes, and the file store (revision checks, cross-process lock, atomic private files, invites).
+
+Next: the login flow and lobby in the gateway, staff commands, unauthenticated idle timeout (RT-1-A1), `Char.Login`, then OAuth.
+
 ## Stage 02: internal session protocol and a stub world server (done)
 
 Done:
@@ -106,7 +116,6 @@ Decided for this stage, beyond the design document:
 | Item | When |
 | --- | --- |
 | Idle timeout (RT-1-A1, accepted for now) | Stage 03, with the lobby and accounts |
-| Stage 03: accounts, auth (Argon2id, TOTP, OAuth) and the lobby, with the account store and auth provider as interfaces from the start (design §03, §13) | Next stage |
 | Rootless Podman's default port forwarding (rootlessport) hides players' addresses: every connection appears to come from the Podman network, so `MAX_PER_HOST` would cap the whole server and logs cannot tell players apart. Use pasta networking or a proxy that preserves the client address | Before real players connect |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |
 | Decisions still open in design §14: scene presentation, combat timing, remote replay, script migration | Before the stages they block |

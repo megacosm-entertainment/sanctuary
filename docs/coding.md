@@ -37,6 +37,9 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Readable rendering of telnet bytes | `telnet.Describe` | `internal/telnet/describe.go` |
 | WebSocket upgrade, origin check, framing | `websocket.Upgrade`, `websocket.Conn` | `internal/websocket` |
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
+| Hash and check passwords (Argon2id, bounded concurrency, no account enumeration by timing) | `account.Hasher`, `CheckNewPassword` | `internal/account/password.go` |
+| TOTP codes with replay protection; secrets sealed at rest; recovery codes | `account.CheckTOTP`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
+| Accounts and invites, stored with revision checks and atomic, private files | `account.Store`, `account.FileStore` | `internal/account` |
 | Declare a program setting once: flag, `SANCTUARY_` env var, env-file key, secret handling | `config.Set` (`String`, `Int`, `Bool`, `Duration`, `Blob`) | `internal/config` |
 | Command startup: parse settings, logger, report sources, key pairs, trust | `cli.Parse`, `cli.Logger`, `cli.Report`, `cli.KeyPair`, `cli.Trust` | `internal/cli` |
 | Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |
@@ -56,6 +59,15 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 ## 3. Dependencies
 
 The standard library is the default. A third-party module has to justify itself against the design doc's priorities: a small dependency surface is a security property (§02), and `./sanctuary` with no configuration must just work (§03). Note the reason for any dependency in the change that adds it. Every dependency is attack surface: the red team checks each one against known vulnerabilities, and so does an upgrade of Go itself.
+
+Current dependencies, and why each one is here:
+
+| Module | Used for | Why not the standard library |
+| --- | --- | --- |
+| `golang.org/x/crypto` (`argon2`) | Password hashing (`internal/account`) | The standard library has no memory-hard password hash; Argon2id is the current recommendation (RFC 9106, OWASP), and writing one would be the kind of cryptography nobody should hand-roll. Maintained by the Go project. |
+| `golang.org/x/sys` | Required by `x/crypto`'s Argon2 for CPU feature detection | Indirect; not used directly. |
+
+TOTP is deliberately not a dependency: it is a few lines of RFC 6238 around the standard library's HMAC, and its real pitfalls (replay, constant-time comparison, encryption at rest) are ours to handle either way.
 
 **The Go toolchain is a dependency too.** The `go` line in `go.mod` is the security floor: the oldest toolchain allowed to build the gateway. Keep it on a supported release (Go supports its two newest major versions) and raise it to the newest patch release whenever `scripts/vulncheck.sh` reports a fix. Keep the devcontainer's Go version at or above it.
 
