@@ -35,7 +35,7 @@ dev_keys "$work/keys"
 
 ./bin/sanctuary-gateway -log-level debug -stub-realm=false \
     -telnet 127.0.0.1:19000 -telnets 127.0.0.1:19010 -ws 127.0.0.1:19020 \
-    -realm-listen 127.0.0.1:19030 -data-dir "$work/data" \
+    -realm-listen 127.0.0.1:19030 -data-dir "$work/data" -public-telnets-port 19099 \
     -realm-cert "$work/keys/gateway.crt" -realm-key "$work/keys/gateway.key" \
     -realm-pins "stub=$(cat "$work/keys/realm-stub.pin")" \
     >"$log" 2>&1 &
@@ -119,6 +119,8 @@ waitfor() { # file pattern
 say() { printf "%s\r\n" "$1" >&3; }
 waitfor "$held" "Account name" && say smoketest
 waitfor "$held" "Password" && say "smoke test passphrase"
+# 19099 stands for a published port that differs from the listen port.
+if grep -q "Use telnet over TLS on port 19099" "$held"; then echo "PASS  plain-telnet warning names the published TLS port, not the listen port"; else echo "FAIL  plain-telnet warning names the published TLS port, not the listen port"; status=1; fi
 waitfor "$held" "Realm (" && say ""
 waitfor "$held" "stub realm" || { echo "FAIL  player never reached the realm"; status=1; }
 # It never claimed UTF-8, so the realm's reply reaches it as plain ASCII.

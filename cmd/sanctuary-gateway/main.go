@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -47,6 +48,9 @@ func declare() (*config.Set, settings) {
 		telnetAddr: s.String("TELNET", ":9000", "plain telnet listen address (empty disables)"),
 		tlsAddr:    s.String("TELNETS", ":9010", "telnet+TLS listen address (empty disables)"),
 		wsAddr:     s.String("WS", ":9020", "WebSocket listen address (empty disables)"),
+		pubTelnet:  s.String("PUBLIC_TELNET_PORT", "", "port players use for plain telnet, when it differs from TELNET's (port forwarding, published container ports); advertised in MSSP"),
+		pubTelnets: s.String("PUBLIC_TELNETS_PORT", "", "port players use for telnet over TLS, when it differs from TELNETS's; advertised in MSSP and the plain-telnet warning"),
+		pubWS:      s.String("PUBLIC_WS_PORT", "", "port players use for WebSocket, when it differs from WS's; advertised in MSSP"),
 		wsPlain:    s.Bool("WS_PLAIN", false, "serve ws:// instead of wss:// (local development only)"),
 		origins:    s.String("WS_ORIGINS", "", "comma-separated allowed browser origins (default: same-origin only)"),
 		tlsCert:    s.Blob("TLS_CERT", false, "player TLS certificate; a self-signed dev certificate is generated if unset"),
@@ -77,6 +81,7 @@ func declare() (*config.Set, settings) {
 // settings are the gateway's operational settings.
 type settings struct {
 	name, host, telnetAddr, tlsAddr, wsAddr, origins, logLevel *string
+	pubTelnet, pubTelnets, pubWS                               *string
 	wsPlain, stubRealm, echoOnly                               *bool
 	maxClients, maxPerHost                                     *int
 	tlsCert, tlsKey                                            config.Blob
@@ -105,6 +110,10 @@ func main() {
 		return
 	}
 	log := cli.Logger(*o.logLevel)
+	if err := checkPorts(o); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	cli.Report(log, s)
 	fail := func(what string, err error) {
 		log.Error(what, "err", err)
@@ -202,6 +211,7 @@ func main() {
 		TelnetAddr:  *o.telnetAddr,
 		TelnetsAddr: *o.tlsAddr,
 		WSAddr:      *o.wsAddr,
+		Public:      gateway.Ports{Telnet: *o.pubTelnet, Telnets: *o.pubTelnets, WS: *o.pubWS},
 		WSPlain:     *o.wsPlain,
 		WSOrigins:   cli.SplitList(*o.origins),
 		TLS:         gateway.TLSConfig(cert),
@@ -252,10 +262,8 @@ func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, er
 		}
 	}
 	hint := ""
-	if *o.tlsAddr != "" {
-		if _, port, err := net.SplitHostPort(*o.tlsAddr); err == nil {
-			hint = "telnet over TLS on port " + port
-		}
+	if port := gateway.AdvertisedPort(*o.pubTelnets, *o.tlsAddr); port != "" {
+		hint = "telnet over TLS on port " + port
 	}
 	if signup == login.SignupOpen {
 		log.Info("anyone can create an account (SIGNUP=open)")
@@ -273,4 +281,17 @@ func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, er
 		Realms:          proxy.Handler{Hub: hub, Prefix: *o.cmdPrefix},
 		Issuer:          *o.name,
 	})
+}
+
+// checkPorts validates the PUBLIC_*_PORT settings: a port number or empty.
+func checkPorts(o settings) error {
+	for name, p := range map[string]string{"PUBLIC_TELNET_PORT": *o.pubTelnet, "PUBLIC_TELNETS_PORT": *o.pubTelnets, "PUBLIC_WS_PORT": *o.pubWS} {
+		if p == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("%s: %q is not a port number (1-65535)", name, p)
+		}
+	}
+	return nil
 }

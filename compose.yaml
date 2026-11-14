@@ -38,6 +38,12 @@ services:
       - "${PUBLISH_TELNETS:-9010}:9010"
       - "${PUBLISH_WS:-9020}:9020"
     # The realm port (9030) is deliberately not published.
+    # Players reach the published ports, so that is what MSSP and the
+    # plain-telnet warning must name.
+    environment:
+      SANCTUARY_PUBLIC_TELNET_PORT: "${PUBLISH_TELNET:-9000}"
+      SANCTUARY_PUBLIC_TELNETS_PORT: "${PUBLISH_TELNETS:-9010}"
+      SANCTUARY_PUBLIC_WS_PORT: "${PUBLISH_WS:-9020}"
     # Accounts (password hashes, invites) and, without ACCOUNT_KEY, the
     # generated account key. The root filesystem stays read-only.
     volumes:

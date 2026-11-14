@@ -456,3 +456,37 @@ func TestStalledTLSHandshakeTimesOut(t *testing.T) {
 	}
 	dialTelnet(t, f.Telnet, false) // the slot is free again
 }
+
+// Behind port forwarding (a container's published ports), MSSP advertises
+// the ports players use, not the ones the gateway listens on.
+func TestMSSPAdvertisesPublicPorts(t *testing.T) {
+	f := startGateway(t, func(c *gateway.Config) {
+		c.Public = gateway.Ports{Telnet: "19000", Telnets: "19010", WS: "19020"}
+		c.PublicHost = "mud.example"
+	})
+	c := dialTelnet(t, f.Telnet, false)
+	if len(c.SBs[tn.OptMSSP]) == 0 {
+		t.Fatal("no MSSP")
+	}
+	m := c.SBs[tn.OptMSSP][0]
+	for name, value := range map[string]string{"PORT": "19000", "SSL": "19010", "WEBSOCKET": "wss://mud.example:19020/"} {
+		want := append(append(append([]byte{tn.MSSPVarCode}, name...), tn.MSSPValCode), value...)
+		if !bytes.Contains(m, want) {
+			t.Errorf("MSSP %q lacks %s %s", m, name, value)
+		}
+	}
+}
+
+func TestAdvertisedPort(t *testing.T) {
+	for _, c := range []struct{ public, listen, want string }{
+		{"", ":9010", "9010"},
+		{"19010", ":9010", "19010"},
+		{"19010", "", ""},       // listener off: nothing to advertise
+		{"", "127.0.0.1:0", ""}, // ephemeral port in tests
+		{"19010", "127.0.0.1:0", "19010"},
+	} {
+		if got := gateway.AdvertisedPort(c.public, c.listen); got != c.want {
+			t.Errorf("AdvertisedPort(%q, %q) = %q, want %q", c.public, c.listen, got, c.want)
+		}
+	}
+}

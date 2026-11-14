@@ -31,6 +31,10 @@ type Config struct {
 	TelnetAddr  string // plain telnet, e.g. ":9000"
 	TelnetsAddr string // telnet over TLS, e.g. ":9010"
 	WSAddr      string // WebSocket, e.g. ":9020"
+	// Public is the ports players connect to, where they differ from the
+	// listen ports (port forwarding, a container's published ports). MSSP
+	// advertises these. Empty fields mean the listen port.
+	Public Ports
 	// WSPlain serves ws:// instead of wss://. For local development only.
 	WSPlain    bool
 	WSOrigins  []string // allowed browser origins; empty means same-origin
@@ -330,13 +334,13 @@ func (g *Gateway) msspVars() []telnet.MSSPVar {
 		{Name: "CODEBASE", Values: []string{"Sanctuary"}},
 		{Name: "FAMILY", Values: []string{"Custom"}},
 	}
-	if p := portOf(g.cfg.TelnetAddr); p != "" {
+	if p := AdvertisedPort(g.cfg.Public.Telnet, g.cfg.TelnetAddr); p != "" {
 		v = append(v, telnet.MSSPVar{Name: "PORT", Values: []string{p}})
 	}
-	if p := portOf(g.cfg.TelnetsAddr); p != "" {
+	if p := AdvertisedPort(g.cfg.Public.Telnets, g.cfg.TelnetsAddr); p != "" {
 		v = append(v, telnet.MSSPVar{Name: "SSL", Values: []string{p}})
 	}
-	if p := portOf(g.cfg.WSAddr); p != "" && g.cfg.PublicHost != "" {
+	if p := AdvertisedPort(g.cfg.Public.WS, g.cfg.WSAddr); p != "" && g.cfg.PublicHost != "" {
 		scheme := "wss"
 		if g.cfg.WSPlain {
 			scheme = "ws"
@@ -366,4 +370,20 @@ func hostOf(a net.Addr) string {
 		return a.String()
 	}
 	return h
+}
+
+// Ports are the ports players use, by listener.
+type Ports struct{ Telnet, Telnets, WS string }
+
+// AdvertisedPort is the port to tell players about: public when set,
+// otherwise the port of the listen address (empty when that listener is
+// off, or listens on port 0).
+func AdvertisedPort(public, listen string) string {
+	if listen == "" || portOf(listen) == "" && public == "" {
+		return ""
+	}
+	if public != "" {
+		return public
+	}
+	return portOf(listen)
 }
