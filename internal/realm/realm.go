@@ -31,9 +31,14 @@ type Config struct {
 	Policy  session.QueuePolicy // zero means session.DefaultPolicy
 	Log     *slog.Logger
 
-	// Timeouts; zero means the default. Tests set them in milliseconds.
-	HandshakeTimeout time.Duration // waiting for welcome; default 5s (protocol.md §4)
-	WriteTimeout     time.Duration // one frame to the gateway; default 10s
+	// HandshakeTimeout bounds waiting for welcome; default 5s (protocol.md
+	// §4). Tests set it in milliseconds.
+	HandshakeTimeout time.Duration
+
+	// Writer bounds the queue to the gateway: per player, so one flooded
+	// player is disconnected alone, and per link, so a gateway that stops
+	// reading is detected. Zero fields take realmproto's defaults.
+	Writer realmproto.WriterLimits
 
 	// InputBuffer is how many inbound events a player may have waiting for
 	// its handler. A player past it is disconnected (reason "overflow")
@@ -65,7 +70,9 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 		log:     cfg.Log.With("realm", cfg.ID),
 		players: map[uint64]*player{},
 		reg:     session.NewRegistry(),
+		w:       realmproto.NewWriter(c, cfg.Writer),
 	}
+	defer l.w.Close()
 	// Cancelling ctx closes the link, which unblocks Recv, including while
 	// the handshake waits for welcome.
 	stop := context.AfterFunc(ctx, func() { c.Close() })
@@ -83,8 +90,13 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 	defer cancel()
 
 	err := l.run(hctx)
-	if ctx.Err() != nil {
+	switch {
+	case ctx.Err() != nil:
 		err = ctx.Err()
+	case l.w.Err() != nil:
+		// The writer closed the link (gateway stalled, or a write failed);
+		// that, not the reader's resulting EOF, is why the link ended.
+		err = l.w.Err()
 	}
 	c.Close()
 	l.closeAll()
@@ -103,9 +115,6 @@ func withDefaults(cfg Config) Config {
 	if cfg.HandshakeTimeout == 0 {
 		cfg.HandshakeTimeout = 5 * time.Second
 	}
-	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = 10 * time.Second
-	}
 	if cfg.InputBuffer == 0 {
 		cfg.InputBuffer = 256
 	}
@@ -117,6 +126,7 @@ type link struct {
 	cfg  Config
 	log  *slog.Logger
 	reg  *session.Registry
+	w    *realmproto.Writer // the only writer to conn
 
 	mu      sync.Mutex
 	players map[uint64]*player
@@ -124,7 +134,7 @@ type link struct {
 }
 
 func (l *link) handshake() error {
-	if err := l.send(&realmproto.Hello{
+	if err := l.w.Send(&realmproto.Hello{
 		Versions:    []int{realmproto.Version},
 		Realm:       l.cfg.ID,
 		Name:        l.cfg.Name,
@@ -152,17 +162,6 @@ func (l *link) handshake() error {
 	}
 }
 
-// send writes one message with a deadline. A gateway that cannot take a
-// frame within WriteTimeout is broken; the link is closed so Serve ends.
-func (l *link) send(m realmproto.Message) error {
-	l.conn.SetWriteDeadline(time.Now().Add(l.cfg.WriteTimeout))
-	err := l.conn.Send(m)
-	if err != nil {
-		l.conn.Close()
-	}
-	return err
-}
-
 func (l *link) run(ctx context.Context) error {
 	for {
 		m, err := l.conn.Recv()
@@ -185,7 +184,9 @@ func (l *link) run(ctx context.Context) error {
 				p.gatewayClosed(v.Reason)
 			}
 		case *realmproto.Ping:
-			if err := l.send(&realmproto.Pong{N: v.N}); err != nil {
+			// Queued, never written here: the reader keeps reading even
+			// when the gateway is slow to take our output.
+			if err := l.w.Send(&realmproto.Pong{N: v.N}); err != nil {
 				return err
 			}
 		case *realmproto.Pong:
@@ -321,15 +322,23 @@ func (p *player) WriteEvent(o session.Outbound) error {
 	default:
 		return nil
 	}
-	if err := p.link.send(m); err != nil {
-		if errors.Is(err, realmproto.ErrFrameTooLarge) || errors.Is(err, realmproto.ErrInvalidField) {
-			// A handler bug, not a link failure: drop the one message.
-			p.link.log.Warn("dropped invalid output", "session", p.id, "type", m.Type(), "err", err)
-			return nil
-		}
+	err := p.link.w.Send(m)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, realmproto.ErrSessionBacklog):
+		// This player's output is not reaching the gateway fast enough;
+		// end them alone, as the gateway would a slow client.
+		p.link.log.Warn("player output backlog full; disconnecting", "session", p.id)
+		p.closeWith(realmproto.ClosedOverflow)
+		return session.ErrOverflow
+	case errors.Is(err, realmproto.ErrFrameTooLarge) || errors.Is(err, realmproto.ErrInvalidField):
+		// A handler bug, not a link failure: drop the one message.
+		p.link.log.Warn("dropped invalid output", "session", p.id, "type", m.Type(), "err", err)
+		return nil
+	default:
 		return err
 	}
-	return nil
 }
 
 // Close is called by the session when its handler is done: the realm ends
@@ -344,7 +353,7 @@ func (p *player) closeWith(reason string) {
 		close(p.closed)
 		p.link.forget(p.id)
 		// Best effort: if the link is down there is nobody to tell.
-		p.link.send(&realmproto.SessionClose{Session: p.id, Reason: reason})
+		p.link.w.Send(&realmproto.SessionClose{Session: p.id, Reason: reason})
 	})
 }
 

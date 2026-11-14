@@ -53,7 +53,9 @@ func (c *Conn) Send(m Message) error {
 // SendRaw writes payload as one frame without encoding or validating it.
 // It exists so tests can play a broken or newer peer (unknown types,
 // malformed JSON); production code sends only through Send.
-func (c *Conn) SendRaw(payload []byte) error {
+func (c *Conn) SendRaw(payload []byte) error { return c.writeFrame(payload) }
+
+func (c *Conn) writeFrame(payload []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	return WriteFrame(c.rw, payload)

@@ -26,6 +26,43 @@ func Untrusted(s string) string {
 	if isClean(s) {
 		return s
 	}
+	return clean(s, false)
+}
+
+// Server cleans server-authored output, such as text a realm sends through
+// the gateway, before it reaches a client. It is Untrusted with three things
+// kept, because server output legitimately uses them:
+//
+//   - line breaks (LF; CR is still removed, and transports add it back),
+//   - TAB, kept as TAB,
+//   - 7-bit SGR colour and style sequences (ESC [ digits ; : m, at most
+//     maxSGR bytes). Every other escape, 8-bit CSI included, is removed.
+//
+// Player text a realm embeds should already have been through Untrusted;
+// Server is the gateway's second line of defence against a realm that
+// forgot, or one that has been compromised.
+func Server(s string) string { return clean(s, true) }
+
+// maxSGR caps one kept SGR sequence; longer ones are dropped as suspect.
+// A full truecolour foreground and background, ESC[38;2;255;255;255;48;2;255;255;255m,
+// is 37 bytes.
+const maxSGR = 64
+
+// isSGR reports whether seq, one whole escape sequence, is ESC [ params m
+// with only digits, ';' and ':' as parameters.
+func isSGR(seq string) bool {
+	if len(seq) < 3 || len(seq) > maxSGR || seq[1] != '[' || seq[len(seq)-1] != 'm' {
+		return false
+	}
+	for i := 2; i < len(seq)-1; i++ {
+		if c := seq[i]; !(c >= '0' && c <= '9' || c == ';' || c == ':') {
+			return false
+		}
+	}
+	return true
+}
+
+func clean(s string, server bool) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for i := 0; i < len(s); {
@@ -37,8 +74,14 @@ func Untrusted(s string) string {
 		}
 		switch {
 		case r == 0x1b:
-			i += escapeLen(s[i:])
+			n := escapeLen(s[i:])
+			if server && isSGR(s[i:i+n]) {
+				b.WriteString(s[i : i+n])
+			}
+			i += n
 			continue
+		case server && (r == '\n' || r == '\t'):
+			b.WriteByte(byte(r))
 		case r == '\t':
 			b.WriteByte(' ')
 		case r < 0x20 || r == 0x7f:

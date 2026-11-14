@@ -34,7 +34,8 @@ fuzz_one() { # target package description
 
 if [ "$fuzz" -gt 0 ]; then
     fuzz_one FuzzProcess     ./internal/telnet/     "telnet parser"
-    fuzz_one FuzzUntrusted   ./internal/sanitize/   "sanitiser"
+    fuzz_one FuzzUntrusted   ./internal/sanitize/   "sanitiser (untrusted text)"
+    fuzz_one FuzzServer      ./internal/sanitize/   "sanitiser (server output)"
     fuzz_one FuzzParse       ./internal/gmcp/       "GMCP parser"
     fuzz_one FuzzReadMessage ./internal/websocket/  "WebSocket frame reader"
     fuzz_one FuzzDecode      ./internal/realmproto/ "realm protocol decoder"

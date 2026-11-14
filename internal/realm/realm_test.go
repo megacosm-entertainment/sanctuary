@@ -346,3 +346,105 @@ func TestCancelDuringHandshake(t *testing.T) {
 		t.Fatalf("Serve after cancel during handshake = %v, want context.Canceled", err)
 	}
 }
+
+// A gateway that stops reading must not freeze the realm's link reader:
+// pings keep being accepted (and their pongs queued) until the link-wide
+// queue fills, and then the realm gives up on the link instead of hanging.
+func TestStalledGatewayDoesNotBlockReader(t *testing.T) {
+	gw, conn := realmproto.Pipe() // raw: this gateway stops reading after the handshake
+	t.Cleanup(func() { gw.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		done <- realm.Serve(ctx, conn, realm.Config{
+			ID: "live", Handler: echo.Handler{Banner: banner},
+			Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Writer: realmproto.WriterLimits{LinkBytes: 4096, WriteTimeout: time.Minute},
+		})
+	}()
+	if _, err := gw.RecvLimit(realmproto.MaxHello); err != nil {
+		t.Fatalf("reading hello: %v", err)
+	}
+	if err := gw.Send(&realmproto.Welcome{Version: realmproto.Version}); err != nil {
+		t.Fatalf("sending welcome: %v", err)
+	}
+	// From here the gateway only writes. Each Send blocks until the realm's
+	// reader takes the frame, so a blocked reader shows up as a stuck Send.
+	sent := make(chan error, 1)
+	go func() {
+		for i := uint64(1); ; i++ {
+			if err := gw.Send(&realmproto.Ping{N: i}); err != nil {
+				sent <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, realmproto.ErrStalled) {
+			t.Fatalf("Serve = %v, want ErrStalled once the queue to the gateway filled", err)
+		}
+	case <-time.After(rpt.Timeout):
+		t.Fatal("realm neither kept reading nor gave up on a stalled gateway")
+	}
+	select {
+	case <-sent: // the realm closed the link, so the writes stopped
+	case <-time.After(rpt.Timeout):
+		t.Fatal("gateway writes still blocked after the realm closed the link")
+	}
+}
+
+// One player whose output is not getting out is disconnected alone; the
+// realm stays registered.
+func TestPlayerOutputBacklogDisconnectsOnlyThatPlayer(t *testing.T) {
+	flood := session.HandlerFunc(func(ctx context.Context, s *session.Session) {
+		for i := 0; i < 100; i++ {
+			s.Send(session.Text{Text: strings.Repeat("x", 1000) + "\n"})
+		}
+		<-s.Done()
+	})
+	gw, conn := realmproto.Pipe()
+	t.Cleanup(func() { gw.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go realm.Serve(ctx, conn, realm.Config{
+		ID: "live", Handler: flood,
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Writer: realmproto.WriterLimits{SessionBytes: 8192, LinkBytes: 1 << 20, WriteTimeout: time.Minute},
+	})
+	if _, err := gw.RecvLimit(realmproto.MaxHello); err != nil {
+		t.Fatalf("reading hello: %v", err)
+	}
+	if err := gw.Send(&realmproto.Welcome{Version: realmproto.Version}); err != nil {
+		t.Fatalf("sending welcome: %v", err)
+	}
+	if err := gw.Send(&realmproto.SessionOpen{Session: 1, Transport: "telnet"}); err != nil {
+		t.Fatalf("session.open: %v", err)
+	}
+	// Now read: some of the flood, then session.close for overflow.
+	for {
+		m, err := gw.Recv()
+		if err != nil {
+			t.Fatalf("link ended (%v) before the flooded player was closed", err)
+		}
+		if c, ok := m.(*realmproto.SessionClose); ok {
+			if c.Session != 1 || c.Reason != realmproto.ClosedOverflow {
+				t.Fatalf("session.close = %+v, want session 1 with reason overflow", c)
+			}
+			break
+		}
+	}
+	if err := gw.Send(&realmproto.Ping{N: 5}); err != nil {
+		t.Fatalf("ping after overflow: %v", err)
+	}
+	for {
+		m, err := gw.Recv()
+		if err != nil {
+			t.Fatalf("link ended (%v) after one player overflowed", err)
+		}
+		if p, ok := m.(*realmproto.Pong); ok && p.N == 5 {
+			return
+		}
+	}
+}

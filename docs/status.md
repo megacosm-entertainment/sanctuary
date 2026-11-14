@@ -37,7 +37,38 @@ conflict: security, then accessibility, then admin and authoring.
   and GMCP (GMCP needs a plugin), so features must not depend on them.
 - Red-team rounds 1 and 2 are in [security/redteam-log.md](security/redteam-log.md).
 
-## Stage 02: internal session protocol and a stub world server (next)
+## Stage 02: internal session protocol and a stub world server (in progress)
+
+Done:
+
+- Protocol spec and `internal/realmproto` (frames, messages, validation,
+  in-memory link, bounded non-blocking `Writer`).
+- Realm side, `internal/realm`: handshake, and players as
+  `session.Transport`s so session handlers run unchanged behind the
+  protocol.
+- Gateway side, `internal/proxy`: realm registration (version, duplicate
+  and cap checks), routing players to a realm, relaying both ways, realm
+  output cleaned with `sanitize.Server`.
+- Isolation, tested: a stalled realm does not delay another realm's
+  players; one player flooding input is disconnected alone; a link whose
+  peer stops reading is dropped rather than hanging either side
+  (protocol.md §8a).
+- The gateway binary runs the stub realm in-process over the in-memory
+  link (`-stub-realm`, default on; `-echo` restores stage-01 behaviour).
+
+Try it: `scripts/run.sh -log-level debug`, then connect any client to
+9000/9010/9020 as before. The banner says "stub realm"; `/info` shows the
+client as the realm sees it (MNES variables and telnet option lists stay in
+the gateway, so they no longer appear).
+
+Remaining:
+
+1. mTLS realm listener on the gateway, key pinning, and a separate
+   `sanctuary-realm` binary that dials in with reconnect backoff.
+2. Keepalive (ping on idle, close on missing pong).
+3. Drain on SIGTERM, and holding players when a realm is lost, re-offering
+   them when it returns (protocol.md §8).
+4. ASCII fallback for clients that have not claimed UTF-8.
 
 From design §13: a versioned message schema against a transport interface
 (socket and in-memory), a world server that accepts sessions and reflects

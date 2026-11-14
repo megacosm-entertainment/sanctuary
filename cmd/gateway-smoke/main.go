@@ -109,6 +109,10 @@ func telnetChecks() {
 	}
 	defer c.Close()
 
+	// Stage 02: the session is served by a realm through the realm
+	// protocol, not by the gateway itself. The stub realm's banner says so.
+	check("telnet: served by the stub realm through the realm protocol", contains(c.Text.String(), nil, "stub realm"))
+
 	check("telnet: server offers TTYPE, NAWS, NEW-ENVIRON, CHARSET, EOR, GMCP, MSSP, MCCP2", func() error {
 		var missing []string
 		for _, w := range [][2]byte{{tn.DO, tn.OptTTYPE}, {tn.DO, tn.OptNAWS}, {tn.DO, tn.OptNewEnviron},

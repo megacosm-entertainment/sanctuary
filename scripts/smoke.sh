@@ -50,6 +50,8 @@ logcheck "client identified via TTYPE/MTTS"         '"msg":"client identified".*
 logcheck "valid GMCP received and logged"            '"msg":"GMCP received".*"package":"Core.Hello"'
 logcheck "malformed GMCP rejected"                   '"msg":"rejected malformed GMCP"'
 logcheck "cross-origin WebSocket refused"            'cross-origin request: https://evil.example'
+logcheck "stub realm registered with the gateway"     '"msg":"realm registered".*"realm":"stub"'
+logcheck "players routed to the realm"               '"msg":"routed to realm".*"realm":"stub"'
 if grep -q '"level":"ERROR"' "$log"; then echo "FAIL  log: errors logged"; grep '"level":"ERROR"' "$log"; status=1; else echo "PASS  log: no errors"; fi
 
 echo "==> stopping gateway (graceful shutdown)"
@@ -57,6 +59,7 @@ kill -TERM "$gw"
 wait "$gw" || true
 trap - EXIT
 logcheck "graceful shutdown logged" '"msg":"shutting down"'
+logcheck "realm told about the shutdown" '"msg":"gateway is shutting down".*"realm":"stub"'
 
 if [ "$status" -ne 0 ]; then echo "smoke test FAILED (log kept at $log)"; exit "$status"; fi
 rm -f "$log"

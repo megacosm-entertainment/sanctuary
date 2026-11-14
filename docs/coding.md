@@ -24,6 +24,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Need | Use | Where |
 | --- | --- | --- |
 | Clean untrusted text before output (escapes, C1, bidi, bad UTF-8) | `sanitize.Untrusted` | `internal/sanitize` |
+| Clean server output, keeping line breaks and SGR colour | `sanitize.Server` | `internal/sanitize` |
 | Parse or format a GMCP message, rejecting malformed JSON | `gmcp.Parse`, `gmcp.Format` | `internal/gmcp` |
 | Normalise a client connection into events | `session.Transport` (telnet, WebSocket, in-memory) | `internal/session`, `internal/telnet`, `internal/websocket` |
 | Bounded outbound queue with a drop/disconnect policy | `session.Session`, `session.QueuePolicy` | `internal/session/session.go` |
@@ -37,7 +38,9 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |
 | Realm protocol: frames, messages, validation, in-memory link | `realmproto.Conn`, `realmproto.Pipe`, `Encode`/`Decode` | `internal/realmproto` (spec: [protocol.md](protocol.md)) |
 | Client info as it crosses to a realm (drops MNES variables), and back | `realmproto.ClientFrom`, `ClientInfo.ToSession` | `internal/realmproto/message.go` |
+| Non-blocking, bounded writer for a link (per-session and per-link limits) | `realmproto.Writer` | `internal/realmproto/writer.go` |
 | Realm side of a link: handshake, players as `session.Transport`s | `realm.Serve` | `internal/realm` |
+| Gateway side of realm links; route a player to a realm | `proxy.Hub`, `proxy.Handler` | `internal/proxy` |
 | Test clients and harnesses | see [testing.md §1](testing.md#1-use-the-shared-scaffolding-extend-it-dont-hand-roll) | |
 
 ## 3. Dependencies

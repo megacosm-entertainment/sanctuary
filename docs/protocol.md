@@ -130,8 +130,9 @@ Rules:
 - `text` and `prompt` use `\n` for line breaks and may contain ANSI SGR
   colour sequences. Any player-supplied text embedded in them must already be
   sanitised by the realm. The gateway sanitises again before output
-  (coding.md §4), and transliterates to ASCII for clients that have not
-  claimed UTF-8.
+  (coding.md §4), keeping only line breaks, tabs and 7-bit SGR
+  (`sanitize.Server`), and will transliterate to ASCII for clients that
+  have not claimed UTF-8.
 - Output for a session the gateway does not know (already closed) is
   dropped silently; it is a normal race, not an error.
 - Output is applied to the session's bounded queue without blocking
@@ -202,6 +203,24 @@ not forwarded, and `IPADDRESS` never is.
   `session.open`. Players still waiting after a configurable time (default 2
   minutes) are told and disconnected. Design §04 calls this worth building
   deliberately; the stub realm makes it testable.
+
+## 8a. Backpressure
+
+Neither side ever blocks on the other. Each side writes a link from one
+writer with a bounded queue (`realmproto.Writer`); everything else, the
+link reader answering a ping included, only queues.
+
+- **Per session.** Each session may have at most 1 MiB queued on a link. A
+  session over its share is ended alone (reason `overflow`): one player
+  flooding input, or one player a realm floods with output, cannot hold up
+  anyone else on the link. Ending a session is always allowed, even when its
+  share is full.
+- **Per link.** At most 16 MiB queued in all. Past that, or when one frame
+  takes longer than 10 seconds to write, the peer has stopped reading: the
+  link is closed, the realm is treated as lost (§8), and its players are
+  told.
+- **Across realms.** Each realm has its own link, reader, writer and
+  session table. A stuck realm affects only its own players.
 
 ## 9. Logging
 
