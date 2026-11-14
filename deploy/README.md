@@ -75,9 +75,11 @@ rotates the keys. It refuses production.
 Private keys are *secret* settings. They can be given:
 
 - as a path, in any source: `SANCTUARY_REALM_KEY_FILE=/run/secrets/...`, or
-  the flag `-realm-key /path`. compose.yaml uses this, with Docker secrets;
+  the flag `-realm-key /path`, as a Docker or Kubernetes secret mount
+  provides;
 - as content, from the environment only: `SANCTUARY_REALM_KEY="-----BEGIN
-  PRIVATE KEY-----..."`, as a secrets manager injects it.
+  PRIVATE KEY-----..."`, as a secrets manager injects it. compose.yaml and
+  `run.sh -doppler` use this.
 
 Secret content is refused in a config file (files get committed) and has no
 flag form (flags show in `ps`). It is never logged: the startup report
