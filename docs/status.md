@@ -68,6 +68,21 @@ Decided for this stage, beyond the design document:
 - Commits are signed. Each machine has its own signing and SSH keys; the
   devcontainer uses the host's gpg and SSH agents, and keys are never copied
   into the image or the repo.
+- Machines:
+  - **Mac (work laptop):** Docker Desktop and VS Code with Microsoft's Dev
+    Containers extension. Don't install software on the host; use the
+    container.
+  - **Fedora desktop:** rootless Podman, VSCodium and DevPod. Start with
+    `devpod up ~/devel/new_game/src --ide codium --gpg-agent-forwarding`
+    (provider `docker` with `DOCKER_PATH=podman`). DevPod maps `sanctuary`
+    to the host uid, so file ownership needs nothing extra. SELinux is
+    enforcing, so `~/devel/new_game` (both `src` and `old_game`) is labelled
+    `container_file_t` (`chcon -R -t container_file_t ~/devel/new_game`);
+    redo that on a fresh checkout if the container gets "Permission denied"
+    on `/sanctuary`. `devcontainer.json` does not disable SELinux labelling.
+  - The Open Remote - Devcontainer extension for VSCodium does not work with
+    this image: its build step runs `apt-get` as the image's user, and the
+    image deliberately runs as `sanctuary`, not root.
 - Go 1.27.4 is the floor in `go.mod`. When `scripts/vulncheck.sh` reports a
   reachable vulnerability, raise `go.mod` and `GO_VERSION` in the Dockerfile
   together.
