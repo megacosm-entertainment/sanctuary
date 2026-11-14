@@ -45,6 +45,8 @@ Done:
 
 - `internal/account`: Argon2id hashing (bounded concurrency, no timing enumeration), TOTP (RFC 6238 vectors, replay protection), secrets sealed at rest (AES-GCM, bound to the account), recovery codes, and the file store (revision checks, cross-process lock, atomic private files, invites).
 
+- Reserved names are a policy: a server's own names merge with the built-in list, or replace it; the words the login prompt uses stay reserved either way. Settings (`SANCTUARY_RESERVED_NAMES`, `SANCTUARY_RESERVED_NAMES_REPLACE`) arrive with the login slice.
+
 Next: the login flow and lobby in the gateway, staff commands, unauthenticated idle timeout (RT-1-A1), `Char.Login`, then OAuth.
 
 ## Stage 02: internal session protocol and a stub world server (done)

@@ -40,6 +40,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Hash and check passwords (Argon2id, bounded concurrency, no account enumeration by timing) | `account.Hasher`, `CheckNewPassword` | `internal/account/password.go` |
 | TOTP codes with replay protection; secrets sealed at rest; recovery codes | `account.CheckTOTP`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
 | Accounts and invites, stored with revision checks and atomic, private files | `account.Store`, `account.FileStore` | `internal/account` |
+| Account name rules and reserved names (server additions merged or replacing the built-in list) | `account.Names`, `NewNames` | `internal/account/account.go` |
 | Declare a program setting once: flag, `SANCTUARY_` env var, env-file key, secret handling | `config.Set` (`String`, `Int`, `Bool`, `Duration`, `Blob`) | `internal/config` |
 | Command startup: parse settings, logger, report sources, key pairs, trust | `cli.Parse`, `cli.Logger`, `cli.Report`, `cli.KeyPair`, `cli.Trust` | `internal/cli` |
 | Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |

@@ -247,3 +247,50 @@ func TestOversizeRecordRefused(t *testing.T) {
 		t.Fatalf("Get(oversize record) = %+v, %v; want the size refusal", a, err)
 	}
 }
+
+// A server's own reserved names are merged with the built-in ones by
+// default, or replace them; the words the login prompt uses stay reserved
+// either way.
+func TestServerReservedNames(t *testing.T) {
+	merged, err := NewNames([]string{"Aldric", " Vesper "}, false)
+	if err != nil {
+		t.Fatalf("NewNames: %v", err)
+	}
+	for name, want := range map[string]bool{"aldric": true, "VESPER": true, "admin": true, "new": true, "Mara": false} {
+		if merged.Reserved(name) != want {
+			t.Errorf("merged policy: Reserved(%q) = %v, want %v", name, !want, want)
+		}
+	}
+	replaced, err := NewNames([]string{"Aldric"}, true)
+	if err != nil {
+		t.Fatalf("NewNames: %v", err)
+	}
+	for name, want := range map[string]bool{"aldric": true, "admin": false, "staff": false, "new": true, "quit": true, "help": true} {
+		if replaced.Reserved(name) != want {
+			t.Errorf("replacing policy: Reserved(%q) = %v, want %v", name, !want, want)
+		}
+	}
+	// A typo in the setting is an error, not a silently useless entry.
+	if _, err := NewNames([]string{"Lord Aldric"}, false); err == nil {
+		t.Error("NewNames accepted a reserved name with a space in it")
+	}
+
+	s, _ := newStore(t)
+	s.Names = merged
+	if err := s.Create(ctx, newAccount(t, "Aldric")); !errors.Is(err, ErrReservedName) {
+		t.Fatalf("Create(Aldric) under a policy reserving it = %v, want ErrReservedName", err)
+	}
+	code, _ := NewInviteCode()
+	s.AddInvite(ctx, code, "staff1", time.Now().Add(time.Hour))
+	if err := s.CreateWithInvite(ctx, newAccount(t, "Vesper"), code); !errors.Is(err, ErrReservedName) {
+		t.Fatalf("CreateWithInvite(Vesper) = %v, want ErrReservedName", err)
+	}
+	if err := s.CreateWithInvite(ctx, newAccount(t, "Teo"), code); err != nil {
+		t.Fatalf("the invite was used up by the refused reserved name: %v", err)
+	}
+	s2, _ := newStore(t)
+	s2.Names = replaced
+	if err := s2.Create(ctx, newAccount(t, "Admin")); err != nil {
+		t.Fatalf("Create(Admin) when the built-in list is replaced = %v, want allowed", err)
+	}
+}

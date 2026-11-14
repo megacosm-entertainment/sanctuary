@@ -27,6 +27,9 @@ import (
 // password hashes.
 type FileStore struct {
 	dir string
+	// Names is the policy new account names must meet; the zero value is
+	// DefaultNames. Set it before use, from the server's settings.
+	Names Names
 }
 
 // maxRecord bounds an account file read back, so a damaged or tampered
@@ -129,7 +132,7 @@ func (s *FileStore) Create(ctx context.Context, a *Account) error {
 }
 
 func (s *FileStore) createLocked(a *Account) error {
-	if err := CheckName(a.Name); err != nil {
+	if err := s.Names.Check(a.Name); err != nil {
 		return err
 	}
 	p, err := s.accountPath(a.Name)
@@ -152,7 +155,7 @@ func (s *FileStore) CreateWithInvite(ctx context.Context, a *Account, code strin
 	}
 	defer unlock()
 	// Check the name first: a taken name must not use up the invite.
-	if err := CheckName(a.Name); err != nil {
+	if err := s.Names.Check(a.Name); err != nil {
 		return err
 	}
 	if p, err := s.accountPath(a.Name); err != nil {

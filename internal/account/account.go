@@ -75,11 +75,59 @@ const (
 	MaxName = 20
 )
 
-// reserved names cannot be accounts: words the login prompt understands,
-// and roles a player might hope to be mistaken for.
-var reserved = map[string]bool{
-	"new": true, "quit": true, "admin": true, "administrator": true, "staff": true,
-	"system": true, "sanctuary": true, "gateway": true, "realm": true, "help": true,
+// promptWords are words the login prompt itself understands. They are
+// always reserved: an account called "new" would make signing up
+// impossible to tell from logging in.
+var promptWords = []string{"new", "quit", "help"}
+
+// DefaultReserved are the built-in reserved names: roles and system names
+// a player might hope to be mistaken for. A server can add its own (staff
+// characters, deities, place names) or replace this list; see NewNames.
+var DefaultReserved = []string{"admin", "administrator", "staff", "system", "sanctuary", "gateway", "realm"}
+
+// Names is the policy for new account names: the character rules, and the
+// names that are reserved.
+type Names struct {
+	reserved map[string]bool
+}
+
+// NewNames builds a policy from the server's extra reserved names, merged
+// with DefaultReserved, or instead of it when replace is set. The prompt
+// words are reserved either way. Each extra must itself be a well-formed
+// name (letters and digits), so a typo in the setting is reported rather
+// than silently reserving nothing.
+func NewNames(extra []string, replace bool) (Names, error) {
+	n := Names{reserved: map[string]bool{}}
+	for _, w := range promptWords {
+		n.reserved[w] = true
+	}
+	if !replace {
+		for _, w := range DefaultReserved {
+			n.reserved[w] = true
+		}
+	}
+	for _, w := range extra {
+		w = strings.TrimSpace(w)
+		if w == "" {
+			continue
+		}
+		if err := checkChars(w); err != nil {
+			return Names{}, fmt.Errorf("account: reserved name %q: %w", w, err)
+		}
+		n.reserved[Key(w)] = true
+	}
+	return n, nil
+}
+
+// DefaultNames is the policy with no server additions.
+var DefaultNames, _ = NewNames(nil, false)
+
+// Reserved reports whether name is reserved under this policy.
+func (n Names) Reserved(name string) bool {
+	if n.reserved == nil {
+		return DefaultNames.Reserved(name)
+	}
+	return n.reserved[Key(name)]
 }
 
 // ErrBadName reports an unacceptable account name.
@@ -88,10 +136,23 @@ var ErrBadName = fmt.Errorf("account: a name is %d-%d letters and digits, starti
 // ErrReservedName reports a name kept for the system.
 var ErrReservedName = errors.New("account: that name is reserved")
 
-// CheckName validates a new account name. Names are ASCII letters and
-// digits only: no lookalike characters (homoglyphs), no spaces, nothing a
-// screen reader would read oddly.
-func CheckName(name string) error {
+// Check validates a new account name. Names are ASCII letters and digits
+// only: no lookalike characters (homoglyphs), no spaces, nothing a screen
+// reader would read oddly.
+func (n Names) Check(name string) error {
+	if err := checkChars(name); err != nil {
+		return err
+	}
+	if n.Reserved(name) {
+		return ErrReservedName
+	}
+	return nil
+}
+
+// CheckName validates a name under DefaultNames.
+func CheckName(name string) error { return DefaultNames.Check(name) }
+
+func checkChars(name string) error {
 	if len(name) < MinName || len(name) > MaxName {
 		return ErrBadName
 	}
@@ -100,9 +161,6 @@ func CheckName(name string) error {
 		if !(letter || (i > 0 && c >= '0' && c <= '9')) {
 			return ErrBadName
 		}
-	}
-	if reserved[Key(name)] {
-		return ErrReservedName
 	}
 	return nil
 }
