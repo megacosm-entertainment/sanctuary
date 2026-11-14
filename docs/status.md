@@ -29,8 +29,12 @@ conflict: security, then accessibility, then admin and authoring.
   subprotocols, with an origin check.
 - Output sanitised; per-session outbound queues (text overflow disconnects,
   GMCP is dropped above a soft limit).
-- Tested live in Mudlet, TinTin++ and a browser. **MUSHclient is not yet
-  tested.**
+- Tested live in Mudlet, TinTin++, MUSHclient 5.06 and a browser. MUSHclient
+  with default settings accepts only TTYPE (MTTS 9: ANSI, 256 colours) and
+  MCCP2; echo, compression and `/secret` masking all work with that subset.
+  With its NAWS, EOR and UTF-8 settings turned on it also negotiates NAWS
+  and EOR (MTTS 13, adding UTF-8). It still refuses CHARSET, NEW-ENVIRON
+  and GMCP (GMCP needs a plugin), so features must not depend on them.
 - Red-team rounds 1 and 2 are in [security/redteam-log.md](security/redteam-log.md).
 
 ## Stage 02: internal session protocol and a stub world server (next)
@@ -42,10 +46,16 @@ gateway proxies instead of echoing.
 
 Decided for this stage, beyond the design document:
 
+- The protocol is specified in [protocol.md](protocol.md): JSON messages in
+  length-prefixed frames, standard library only, mTLS with key pinning.
 - The event schema carries **scene, in-character/out-of-character and pose
-  metadata from its first version**, because scenes are first-class (design
+  metadata from its first version**, all optional: scenes are supported,
+  not assumed, since some realms will be run mainly hack and slash (design
   §02, "What the engine is for"). Adding them later would mean versioning
   every consumer.
+- Charset fallback: a client that claims neither UTF-8 (MTTS bit 4,
+  CHARSET or MNES) gets plain ASCII text, not UTF-8. Decide where the
+  transliteration lives when output rendering is designed.
 - Build on what stage 01 already has: `session.Transport`, `MemPipe` and
   the shared test clients. See the inventory in [coding.md](coding.md).
 
@@ -53,7 +63,6 @@ Decided for this stage, beyond the design document:
 
 | Item | When |
 | --- | --- |
-| Test against MUSHclient | Any time; before stage 02 is closed |
 | Idle timeout (RT-1-A1, accepted for now) | Stage 03, with the lobby and accounts |
 | Small runtime image for servers. `docker/dev` is for development only: passwordless sudo, Claude Code, compilers | Before anything is reachable from the internet |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |

@@ -2,8 +2,8 @@
 # Unit and integration tests. No running gateway needed.
 #
 #   scripts/test.sh              all tests (race detector when available)
-#   scripts/test.sh -fuzz 30     ...then fuzz the telnet parser and the
-#                                sanitiser for 30 seconds each
+#   scripts/test.sh -fuzz 30     ...then fuzz every parser of untrusted
+#                                input for 30 seconds each
 #   scripts/test.sh -run MTTS    pass anything else through to go test
 source "$(dirname "$0")/lib.sh"
 
@@ -24,14 +24,19 @@ race="$(race_flag)"
 echo "==> go test $race ./..."
 go test $race -count=1 "${args[@]+"${args[@]}"}" ./...
 
+# Shrinking each new interesting input may otherwise take up to Go's default
+# of 60s, during which a short run makes no progress; large valid messages
+# (the realm protocol accepts up to 256 KiB) are slow to shrink.
+fuzz_one() { # target package description
+    echo "==> fuzzing $3 (${fuzz}s)"
+    go test -run=NONE -fuzz="$1" -fuzztime="${fuzz}s" -fuzzminimizetime=5s "$2"
+}
+
 if [ "$fuzz" -gt 0 ]; then
-    echo "==> fuzzing telnet parser (${fuzz}s)"
-    go test -run=NONE -fuzz=FuzzProcess -fuzztime="${fuzz}s" ./internal/telnet/
-    echo "==> fuzzing sanitiser (${fuzz}s)"
-    go test -run=NONE -fuzz=FuzzUntrusted -fuzztime="${fuzz}s" ./internal/sanitize/
-    echo "==> fuzzing GMCP parser (${fuzz}s)"
-    go test -run=NONE -fuzz=FuzzParse -fuzztime="${fuzz}s" ./internal/gmcp/
-    echo "==> fuzzing WebSocket frame reader (${fuzz}s)"
-    go test -run=NONE -fuzz=FuzzReadMessage -fuzztime="${fuzz}s" ./internal/websocket/
+    fuzz_one FuzzProcess     ./internal/telnet/     "telnet parser"
+    fuzz_one FuzzUntrusted   ./internal/sanitize/   "sanitiser"
+    fuzz_one FuzzParse       ./internal/gmcp/       "GMCP parser"
+    fuzz_one FuzzReadMessage ./internal/websocket/  "WebSocket frame reader"
+    fuzz_one FuzzDecode      ./internal/realmproto/ "realm protocol decoder"
 fi
 echo "==> tests passed"

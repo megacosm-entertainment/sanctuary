@@ -74,7 +74,7 @@ Connections, goroutines and gateways are released with `t.Cleanup` or `defer`. A
 
 ## 11. Fuzz the parsers
 
-Anything that parses untrusted input has a fuzz target with seeds drawn from real traffic: currently the telnet parser (`FuzzProcess`), the sanitiser (`FuzzUntrusted`), the GMCP parser (`FuzzParse`) and the WebSocket frame reader (`FuzzReadMessage`). Run `scripts/test.sh -fuzz 30` before merging parser changes. A fuzz target asserts properties (no panic, bounded output, idempotence), with each bound explained in a comment.
+Anything that parses untrusted input has a fuzz target with seeds drawn from real traffic: currently the telnet parser (`FuzzProcess`), the sanitiser (`FuzzUntrusted`), the GMCP parser (`FuzzParse`), the WebSocket frame reader (`FuzzReadMessage`) and the realm protocol decoder (`FuzzDecode`). Run `scripts/test.sh -fuzz 30` before merging parser changes. A fuzz target asserts properties (no panic, bounded output, idempotence), with each bound explained in a comment.
 
 ## 12. Red-team significant changes
 

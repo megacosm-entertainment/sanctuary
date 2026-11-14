@@ -45,6 +45,11 @@ func Parse(b []byte) (pkg string, data json.RawMessage, err error) {
 	return string(name), json.RawMessage(bytes.Clone(rest)), nil
 }
 
+// ValidPackage reports whether pkg is an acceptable GMCP package name: 1-64
+// characters of letters, digits, '.', '_' and '-'. Anything that carries a
+// GMCP package name (the realm protocol, for one) uses this same rule.
+func ValidPackage(pkg string) bool { return validPackage([]byte(pkg)) }
+
 func validPackage(b []byte) bool {
 	if len(b) == 0 || len(b) > 64 {
 		return false

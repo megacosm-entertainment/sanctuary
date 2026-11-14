@@ -34,6 +34,9 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Readable rendering of telnet bytes | `telnet.Describe` | `internal/telnet/describe.go` |
 | WebSocket upgrade, origin check, framing | `websocket.Upgrade`, `websocket.Conn` | `internal/websocket` |
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
+| Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |
+| Realm protocol: frames, messages, validation, in-memory link | `realmproto.Conn`, `realmproto.Pipe`, `Encode`/`Decode` | `internal/realmproto` (spec: [protocol.md](protocol.md)) |
+| Client info as it crosses to a realm (drops MNES variables) | `realmproto.ClientFrom` | `internal/realmproto/message.go` |
 | Test clients and harnesses | see [testing.md §1](testing.md#1-use-the-shared-scaffolding-extend-it-dont-hand-roll) | |
 
 ## 3. Dependencies
