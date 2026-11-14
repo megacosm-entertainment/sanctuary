@@ -72,7 +72,9 @@ Remaining:
 1. Done: drain on SIGTERM, and holding players when a realm drains or is
    lost, re-attaching them when it returns (protocol.md §8); the smoke test
    restarts the realm under a connected player.
-2. ASCII fallback for clients that have not claimed UTF-8.
+2. Done: ASCII fallback. Clients that have not claimed UTF-8 get text folded
+   to plain ASCII by the telnet transport (`charset.ASCII`); `/info` now
+   says which a client gets.
 3. Done: settings from flags, environment and env files (`internal/config`),
    secrets kept out of files; the runtime image (`docker/runtime`) and
    `compose.yaml` (see `deploy/README.md`).
@@ -92,8 +94,8 @@ Decided for this stage, beyond the design document:
   §02, "What the engine is for"). Adding them later would mean versioning
   every consumer.
 - Charset fallback: a client that claims neither UTF-8 (MTTS bit 4,
-  CHARSET or MNES) gets plain ASCII text, not UTF-8. Decide where the
-  transliteration lives when output rendering is designed.
+  CHARSET or MNES) gets plain ASCII text, not UTF-8. It lives in the telnet
+  transport for now; revisit when output rendering moves into the realm.
 - Build on what stage 01 already has: `session.Transport`, `MemPipe` and
   the shared test clients. See the inventory in [coding.md](coding.md).
 

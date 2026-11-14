@@ -25,6 +25,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | --- | --- | --- |
 | Clean untrusted text before output (escapes, C1, bidi, bad UTF-8) | `sanitize.Untrusted` | `internal/sanitize` |
 | Clean server output, keeping line breaks and SGR colour | `sanitize.Server` | `internal/sanitize` |
+| Fold text to plain ASCII for a client without UTF-8; decide whether it has UTF-8 | `charset.ASCII`, `session.ClientInfo.UTF8` | `internal/charset`, `internal/session/events.go` |
 | Parse or format a GMCP message, rejecting malformed JSON | `gmcp.Parse`, `gmcp.Format` | `internal/gmcp` |
 | Normalise a client connection into events | `session.Transport` (telnet, WebSocket, in-memory) | `internal/session`, `internal/telnet`, `internal/websocket` |
 | Bounded outbound queue with a drop/disconnect policy | `session.Session`, `session.QueuePolicy` | `internal/session/session.go` |

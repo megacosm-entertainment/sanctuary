@@ -121,7 +121,11 @@ func describe(s *session.Session) string {
 	} else {
 		b.WriteString("MTTS:          not reported\n")
 	}
-	fmt.Fprintf(&b, "Charset:       %s\n", c.Charset)
+	if c.UTF8() {
+		b.WriteString("Charset:       UTF-8\n")
+	} else {
+		b.WriteString("Charset:       ASCII (the client has not claimed UTF-8)\n")
+	}
 	if c.Width > 0 {
 		fmt.Fprintf(&b, "Window:        %d x %d\n", c.Width, c.Height)
 	} else {

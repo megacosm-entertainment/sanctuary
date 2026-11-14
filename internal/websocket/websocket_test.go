@@ -251,7 +251,14 @@ func TestProtocolViolationsClose(t *testing.T) {
 func newGMCPTransport(t *testing.T) (*GMCPTransport, *wstest.Client) {
 	t.Helper()
 	s, c := pipe(t)
-	return NewGMCPTransport(s, session.Meta{Kind: "ws/gmcp"}, slog.New(slog.NewTextHandler(io.Discard, nil))), c
+	tr := NewGMCPTransport(s, session.Meta{Kind: "ws/gmcp"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// The subprotocol is UTF-8 by definition, so the transport says so
+	// before anything else (no read needed: it is already pending).
+	ev, err := tr.ReadEvent()
+	if u, ok := ev.(session.ClientUpdate); err != nil || !ok || !u.Info.UTF8() {
+		t.Fatalf("first event = %#v, %v; want a ClientUpdate claiming UTF-8", ev, err)
+	}
+	return tr, c
 }
 
 // clientSends writes frames in order from a goroutine, since each write

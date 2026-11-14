@@ -5,7 +5,10 @@
 // proxy speaking the internal protocol to a realm.
 package session
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Inbound is an event from the client towards the server.
 type Inbound interface{ isInbound() }
@@ -101,7 +104,7 @@ type ClientInfo struct {
 	Terminal   string // TTYPE second reply or MNES TERMINAL_TYPE
 	MTTS       int    // capability bitvector; valid when HasMTTS
 	HasMTTS    bool
-	Charset    string // negotiated charset; "UTF-8" by default
+	Charset    string // "UTF-8" once claimed (CHARSET, MNES or the transport); empty until then
 	Width      int    // NAWS; 0 when unknown
 	Height     int
 	// Env holds MNES variables as reported. IPADDRESS is never stored: it is
@@ -109,6 +112,14 @@ type ClientInfo struct {
 	Env map[string]string
 	// Options lists telnet options currently enabled, for diagnostics.
 	Options []string
+}
+
+// UTF8 reports whether the client has claimed UTF-8: a CHARSET negotiation
+// or MNES CHARSET (recorded in Charset), the MTTS UTF-8 bit, or a transport
+// that is UTF-8 by definition. A client that has not gets plain ASCII
+// (charset.ASCII), not UTF-8 it may show as garbage.
+func (c ClientInfo) UTF8() bool {
+	return strings.EqualFold(c.Charset, "UTF-8") || (c.HasMTTS && c.MTTS&MTTSUTF8 != 0)
 }
 
 // ScreenReader reports the MTTS screen-reader bit. Use it to choose defaults,

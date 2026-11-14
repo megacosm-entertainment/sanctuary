@@ -113,6 +113,9 @@ waitfor() { # file pattern
     return 1
 }
 waitfor "$held" "stub realm" || { echo "FAIL  player never reached the realm"; status=1; }
+# It never claimed UTF-8, so the realm's reply reaches it as plain ASCII.
+printf 'Caf\303\251 \342\200\224 ok\r\n' >&3
+if waitfor "$held" "You said: Cafe -- ok"; then echo "PASS  client without UTF-8 gets plain ASCII"; else echo "FAIL  client without UTF-8 gets plain ASCII"; status=1; fi
 kill -TERM "$realm"
 wait "$realm" || true
 realm=

@@ -455,9 +455,12 @@ func (l *link) drain(stopHandlers context.CancelFunc) {
 func (p *player) closeWith(reason string) {
 	p.closeOnce.Do(func() {
 		close(p.closed)
-		p.link.forget(p.id)
-		// Best effort: if the link is down there is nobody to tell.
+		// Queue session.close before forgetting the player: forgetting the
+		// last player wakes a drain, which then sends drained, and that must
+		// follow every session.close on the wire. Best effort: if the link
+		// is down there is nobody to tell.
 		p.link.w.Send(&realmproto.SessionClose{Session: p.id, Reason: reason})
+		p.link.forget(p.id)
 	})
 }
 

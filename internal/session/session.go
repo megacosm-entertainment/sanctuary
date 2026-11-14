@@ -125,7 +125,7 @@ func NewWithID(id uint64, t Transport, policy QueuePolicy, log *slog.Logger) *Se
 		policy: policy,
 		wake:   make(chan struct{}, 1),
 		done:   make(chan struct{}),
-		client: ClientInfo{Charset: "UTF-8"},
+		client: ClientInfo{},
 	}
 	s.log = log.With("session", s.ID, "transport", s.meta.Kind, "remote", s.meta.Remote)
 	go s.writer()

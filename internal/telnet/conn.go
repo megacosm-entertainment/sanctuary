@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"sanctuary/internal/charset"
 	"sanctuary/internal/gmcp"
 	"sanctuary/internal/sanitize"
 	"sanctuary/internal/session"
@@ -117,7 +118,7 @@ func NewConn(rw io.ReadWriteCloser, cfg Config) *Conn {
 		log:     cfg.Log,
 		w:       rw,
 		readBuf: make([]byte, 4096),
-		info:    session.ClientInfo{Charset: "UTF-8"},
+		info:    session.ClientInfo{},
 	}
 	c.q = qmachine{
 		allowUs:  c.allowUs,
@@ -592,6 +593,11 @@ func (c *Conn) setEnv(name, val string) {
 	case "TERMINAL_TYPE":
 		c.info.Terminal = val
 		c.fromMNES.terminal = true
+	case "CHARSET":
+		// MNES CHARSET is a claim like a CHARSET negotiation (Mudlet sends it).
+		if strings.EqualFold(val, "UTF-8") || strings.EqualFold(val, "UTF8") {
+			c.info.Charset = "UTF-8"
+		}
 	case "MTTS":
 		// MNES is how clients update MTTS mid-session (e.g. turning a
 		// screen reader on), so once it reports MTTS, TTYPE no longer
@@ -623,8 +629,8 @@ func (c *Conn) handleCharset(data []byte) {
 		c.dirty = true
 		c.log.Debug("charset accepted", "charset", cs)
 	case CharsetRejected:
-		// UTF-8 stays the default; a client that cannot take it will show
-		// replacement characters rather than lose text.
+		// No claim recorded: unless MTTS or MNES says otherwise, the client
+		// gets plain ASCII.
 		c.log.Info("client rejected UTF-8 charset")
 	case CharsetRequest:
 		if !c.q.usEnabled(OptCharset) && !c.q.himEnabled(OptCharset) {
@@ -744,9 +750,9 @@ func (c *Conn) WriteEvent(o session.Outbound) error {
 	}
 	switch v := o.(type) {
 	case session.Text:
-		c.out = appendText(c.out, v.Text)
+		c.out = appendText(c.out, c.forClient(v.Text))
 	case session.Prompt:
-		c.out = appendText(c.out, v.Text)
+		c.out = appendText(c.out, c.forClient(v.Text))
 		switch {
 		case c.q.usEnabled(OptEOR):
 			c.out = append(c.out, IAC, EOR)
@@ -767,6 +773,16 @@ func (c *Conn) WriteEvent(o session.Outbound) error {
 		c.q.askUs(OptEcho, v.Hidden)
 	}
 	return c.flush()
+}
+
+// forClient folds text to ASCII for a client that has not claimed UTF-8
+// (stage 02 decision, docs/status.md). Called with mu held, so the client
+// info it reads is current.
+func (c *Conn) forClient(s string) string {
+	if c.info.UTF8() {
+		return s
+	}
+	return charset.ASCII(s)
 }
 
 // appendText converts newlines to CRLF and escapes IAC.

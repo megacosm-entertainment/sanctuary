@@ -144,7 +144,7 @@ Rules:
   colour sequences. Any player-supplied text embedded in them must already be
   sanitised by the realm. The gateway sanitises again before output
   (coding.md §4), keeping only line breaks, tabs and 7-bit SGR
-  (`sanitize.Server`), and will transliterate to ASCII for clients that
+  (`sanitize.Server`), and transliterates to ASCII for clients that
   have not claimed UTF-8.
 - Output for a session the gateway does not know (already closed) is
   dropped silently; it is a normal race, not an error.
@@ -191,7 +191,11 @@ claim, a presentation hint, never a credential.
  "screen_reader": false}
 ```
 
-`mtts` is absent when the client sent none. MNES variables beyond these are
+`mtts` is absent when the client sent none. `charset` is what the gateway
+will deliver: `"UTF-8"` once the client has claimed UTF-8 (CHARSET, MNES
+`CHARSET`, the MTTS UTF-8 bit, or a UTF-8-only transport such as
+`gmcp.mudstandards.org`), and absent when it has not, in which case the
+gateway folds all text to plain ASCII. MNES variables beyond these are
 not forwarded, and `IPADDRESS` never is.
 
 ## 8. Link lifecycle

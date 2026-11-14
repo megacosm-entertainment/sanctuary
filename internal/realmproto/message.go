@@ -252,7 +252,7 @@ func ClientFrom(c session.ClientInfo) ClientInfo {
 		Name:         c.Name,
 		Version:      c.Version,
 		Terminal:     c.Terminal,
-		Charset:      c.Charset,
+		Charset:      deliveredCharset(c),
 		Width:        c.Width,
 		Height:       c.Height,
 		ScreenReader: c.ScreenReader(),
@@ -262,6 +262,15 @@ func ClientFrom(c session.ClientInfo) ClientInfo {
 		w.MTTS = &m
 	}
 	return w
+}
+
+// deliveredCharset is what the gateway will send this client: "UTF-8" once
+// it has claimed UTF-8 by any means, empty for plain ASCII (protocol.md §7).
+func deliveredCharset(c session.ClientInfo) string {
+	if c.UTF8() {
+		return "UTF-8"
+	}
+	return ""
 }
 
 // ToSession converts wire client info back to the session form, for a realm

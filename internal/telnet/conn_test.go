@@ -637,12 +637,71 @@ func TestPromptTerminators(t *testing.T) {
 	}
 }
 
+// claimUTF8 completes the server-initiated CHARSET exchange, as Mudlet does.
+func claimUTF8(c *Conn, f *fakeRW) {
+	feed(c, cmd(DO, OptCharset)...)
+	feed(c, sb(OptCharset, append([]byte{CharsetAccepted}, "UTF-8"...)...)...)
+	f.takeSent()
+}
+
 func TestTextEncoding(t *testing.T) {
-	c, f := newTestConn(t)
 	// LF becomes CRLF, a bare CR becomes CR NUL (RFC 854), and invalid
-	// UTF-8 becomes U+FFFD so no raw IAC byte can reach the wire.
-	write(t, c, session.Text{Text: "a\nb\r\nc\rd\xff"})
-	wantSent(t, f, []byte("a\r\nb\r\nc\r\x00d\xef\xbf\xbd"))
+	// UTF-8 is replaced, so no raw IAC byte can reach the wire: U+FFFD for
+	// a client that claimed UTF-8, "?" for one that did not.
+	t.Run("UTF-8 client", func(t *testing.T) {
+		c, f := newTestConn(t)
+		claimUTF8(c, f)
+		write(t, c, session.Text{Text: "a\nb\r\nc\rd\xff"})
+		wantSent(t, f, []byte("a\r\nb\r\nc\r\x00d\xef\xbf\xbd"))
+	})
+	t.Run("client that has not claimed UTF-8", func(t *testing.T) {
+		c, f := newTestConn(t)
+		write(t, c, session.Text{Text: "a\nb\r\nc\rd\xff"})
+		wantSent(t, f, []byte("a\r\nb\r\nc\r\x00d?"))
+	})
+}
+
+// Stage 02 decision: a client that has not claimed UTF-8 gets plain ASCII.
+// Each way of claiming it is honoured; without one, text is folded.
+func TestASCIIFallback(t *testing.T) {
+	const in = "Café — “ok”"
+	cases := []struct {
+		name  string
+		setup func(c *Conn, f *fakeRW)
+		want  string
+	}{
+		{"no claim (MUSHclient defaults, raw telnet)", func(*Conn, *fakeRW) {}, "Cafe -- \"ok\""},
+		{"CHARSET negotiated", claimUTF8, in},
+		{"MTTS UTF-8 bit", func(c *Conn, f *fakeRW) {
+			// MUSHclient with UTF-8 on: MTTS 13 = ANSI 1 + UTF-8 4 + 256 colours 8.
+			feed(c, cmd(WILL, OptTTYPE)...)
+			feed(c, ttypeIs("MUSHCLIENT")...)
+			feed(c, ttypeIs("ANSI")...)
+			feed(c, ttypeIs("MTTS 13")...)
+			f.takeSent()
+		}, in},
+		{"MTTS without the UTF-8 bit", func(c *Conn, f *fakeRW) {
+			// MUSHclient defaults: MTTS 9 = ANSI 1 + 256 colours 8.
+			feed(c, cmd(WILL, OptTTYPE)...)
+			feed(c, ttypeIs("MUSHCLIENT")...)
+			feed(c, ttypeIs("ANSI")...)
+			feed(c, ttypeIs("MTTS 9")...)
+			f.takeSent()
+		}, "Cafe -- \"ok\""},
+		{"MNES CHARSET", func(c *Conn, f *fakeRW) {
+			feed(c, cmd(WILL, OptNewEnviron)...)
+			feed(c, mnes(EnvIs, def("CHARSET", "UTF-8"))...)
+			f.takeSent()
+		}, in},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, f := newTestConn(t)
+			tc.setup(c, f)
+			write(t, c, session.Text{Text: in})
+			wantSent(t, f, []byte(tc.want))
+		})
+	}
 }
 
 // ---------------------------------------------------------------- input
@@ -817,7 +876,7 @@ func TestUnsolicitedRepliesIgnored(t *testing.T) {
 			c, _ := newTestConn(t)
 			feed(c, tt.in...)
 			info := clientInfo(c)
-			if info.Name != "" || info.Terminal != "" || info.HasMTTS || len(info.Env) != 0 || info.Charset != "UTF-8" {
+			if info.Name != "" || info.Terminal != "" || info.HasMTTS || len(info.Env) != 0 || info.Charset != "" {
 				t.Fatalf("unsolicited reply changed identity: %+v", info)
 			}
 		})

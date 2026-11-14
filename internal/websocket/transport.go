@@ -24,7 +24,11 @@ type GMCPTransport struct {
 }
 
 func NewGMCPTransport(c *Conn, meta session.Meta, log *slog.Logger) *GMCPTransport {
-	return &GMCPTransport{c: c, meta: meta, log: log}
+	// The gmcp.mudstandards.org subprotocol is UTF-8 by definition (text in
+	// binary frames is UTF-8, GMCP in text frames must be), so say so first.
+	return &GMCPTransport{c: c, meta: meta, log: log, pending: []session.Inbound{
+		session.ClientUpdate{Info: session.ClientInfo{Charset: "UTF-8"}},
+	}}
 }
 
 func (t *GMCPTransport) Meta() session.Meta { return t.meta }
