@@ -3,7 +3,7 @@
     // Built from docker/dev/Dockerfile, which provides Go (the security floor
     // in go.mod), the race detector's C toolchain and Claude Code. The old C
     // engine's toolchain is in the separate legacy image.
-    "image": "ghcr.io/megacosm-entertainment/sanctuary:dev_01",
+    "image": "ghcr.io/megacosm-entertainment/sanctuary:dev_02",
     "remoteUser": "sanctuary",
     "workspaceFolder": "/sanctuary/src",
     // The parent folder is mounted so ../old_game is available for reference
@@ -11,7 +11,10 @@
     "workspaceMount": "source=${localWorkspaceFolder}/..,target=/sanctuary,type=bind",
     "mounts": [
         // Keeps the Claude Code login and settings across container rebuilds.
-        "source=sanctuary-claude,target=/home/sanctuary/.claude,type=volume"
+        "source=sanctuary-claude,target=/home/sanctuary/.claude,type=volume",
+        // Keeps the Doppler CLI's login (a dev-scoped service token) across
+        // rebuilds, the same way.
+        "source=sanctuary-doppler,target=/home/sanctuary/.doppler,type=volume"
     ],
     "forwardPorts": [9000, 9010, 9020],
     "portsAttributes": {

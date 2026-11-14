@@ -112,7 +112,7 @@ Decided for this stage, beyond the design document:
 
 ## Environment
 
-- Develop in the devcontainer (`ghcr.io/megacosm-entertainment/sanctuary:dev_01`,
+- Develop in the devcontainer (`ghcr.io/megacosm-entertainment/sanctuary:dev_02`,
   built from `docker/dev/Dockerfile`). It runs as `sanctuary` in
   `/sanctuary/src`, with `../old_game` beside it as read-only reference (the
   rules are in `CLAUDE.md`).

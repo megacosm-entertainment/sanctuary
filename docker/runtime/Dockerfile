@@ -10,7 +10,7 @@
 
 # The build stage reuses the development image, so the Go toolchain is the
 # same pinned, checksum-verified one the code is developed and tested with.
-ARG DEV_IMAGE=ghcr.io/megacosm-entertainment/sanctuary:dev_01
+ARG DEV_IMAGE=ghcr.io/megacosm-entertainment/sanctuary:dev_02
 FROM ${DEV_IMAGE} AS build
 USER root
 WORKDIR /build
