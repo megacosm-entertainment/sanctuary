@@ -37,7 +37,7 @@ conflict: security, then accessibility, then admin and authoring.
   and GMCP (GMCP needs a plugin), so features must not depend on them.
 - Red-team rounds 1 and 2 are in [security/redteam-log.md](security/redteam-log.md).
 
-## Stage 02: internal session protocol and a stub world server (in progress)
+## Stage 02: internal session protocol and a stub world server (done)
 
 Done:
 
@@ -106,6 +106,8 @@ Decided for this stage, beyond the design document:
 | Item | When |
 | --- | --- |
 | Idle timeout (RT-1-A1, accepted for now) | Stage 03, with the lobby and accounts |
+| Red team round 3 suspects, not yet demonstrated: no overall deadline on gateway shutdown (a slow realm can stretch the final flush); a held player may loop attach/hold briefly while a failing realm is being removed; hidden input is not undone when a realm drains or is lost mid-prompt; `encoding/json` matches keys case-insensitively, so another-language realm could read a frame differently (see `security/redteam-log.md`) | A short targeted round before stage 03 |
+| Stage 03: accounts, auth (Argon2id, TOTP, OAuth) and the lobby, with the account store and auth provider as interfaces from the start (design §03, §13) | Next stage |
 | Rootless Podman's default port forwarding (rootlessport) hides players' addresses: every connection appears to come from the Podman network, so `MAX_PER_HOST` would cap the whole server and logs cannot tell players apart. Use pasta networking or a proxy that preserves the client address | Before real players connect |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |
 | Decisions still open in design §14: scene presentation, combat timing, remote replay, script migration | Before the stages they block |
