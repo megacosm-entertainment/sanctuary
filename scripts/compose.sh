@@ -17,8 +17,24 @@ if [ "${1:-}" = -doppler ]; then
     shift 2
 fi
 [ $# -gt 0 ] || set -- up --build
-compose=(docker compose)
-command -v docker >/dev/null || compose=(podman compose)
+# Which engine: Docker if its daemon is reachable, otherwise Podman, whose
+# `podman compose` points the compose provider at the Podman socket. (A
+# `docker` command alone proves nothing: compose packages install one.)
+podman_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
+    compose=(docker compose)
+elif command -v podman >/dev/null; then
+    if [ ! -S "$podman_sock" ]; then
+        echo "Podman's socket is not running. Start it once with:" >&2
+        echo "    systemctl --user enable --now podman.socket" >&2
+        exit 1
+    fi
+    export DOCKER_HOST="unix://$podman_sock"
+    compose=(podman compose)
+else
+    echo "neither Docker nor Podman found" >&2
+    exit 1
+fi
 
 if [ -z "$doppler_config" ]; then
     [ -e .dev/env/gateway.env ] || scripts/devkeys.sh >/dev/null
