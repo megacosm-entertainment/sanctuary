@@ -97,7 +97,7 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 		}
 		return err
 	}
-	l.log.Info("registered with gateway")
+	l.log.Info("registered with gateway", "command_prefix", l.prefix)
 
 	// Handlers get their own context: on shutdown the realm announces the
 	// drain first, then tells handlers to finish (protocol.md §8).
@@ -175,6 +175,7 @@ type link struct {
 	unknown  int           // messages of types this version does not know
 	draining bool          // shutting down: no new players; players are handed back
 	allGone  chan struct{} // closed when the last player leaves during a drain
+	prefix   string        // the gateway's command prefix, from welcome
 }
 
 func (l *link) handshake() error {
@@ -197,6 +198,10 @@ func (l *link) handshake() error {
 	case *realmproto.Welcome:
 		if v.Version != realmproto.Version {
 			return fmt.Errorf("%w: welcome for version %d, we offered %d", ErrProtocol, v.Version, realmproto.Version)
+		}
+		l.prefix = v.CommandPrefix
+		if l.prefix == "" {
+			l.prefix = ">"
 		}
 		return nil
 	case *realmproto.Reject:

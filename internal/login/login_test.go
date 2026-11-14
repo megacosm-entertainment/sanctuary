@@ -171,10 +171,10 @@ func TestSignUpThenPlayThenLogBackIn(t *testing.T) {
 	// Into the realm, which learns who this is from session.open.
 	h.Type("")
 	prompt(t, h, ">")
-	h.Type("/info")
+	h.Type("info")
 	contains(t, prompt(t, h, ">"), "Account:       Alice")
 	// Quitting the realm comes back to the lobby, still connected.
-	h.Type("/quit")
+	h.Type("quit")
 	contains(t, prompt(t, h, "Realm"), "back in the lobby")
 	h.Type("quit")
 	h.ExpectText("Goodbye")

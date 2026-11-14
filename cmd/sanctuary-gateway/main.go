@@ -70,6 +70,7 @@ func declare() (*config.Set, settings) {
 		reservedOnly: s.Bool("RESERVED_NAMES_REPLACE", false, "RESERVED_NAMES replaces the built-in list instead of adding to it"),
 		accountKey:   s.Blob("ACCOUNT_KEY", true, "32-byte key (base64 or hex) that encrypts TOTP secrets; generated in DATA_DIR/account.key if unset"),
 		loginTimeout: s.Duration("LOGIN_TIMEOUT", 2*time.Minute, "how long a connection may take to log in"),
+		cmdPrefix:    s.String("GATEWAY_CMD_PREFIX", ">", "character that starts the gateway's own commands (>lobby, >help); reserved, so realms never receive such lines"),
 	}
 }
 
@@ -81,7 +82,7 @@ type settings struct {
 	tlsCert, tlsKey                                            config.Blob
 	realmListen, realmPins                                     *string
 	realmCert, realmKey, realmCA                               config.Blob
-	dataDir, signup, reserved                                  *string
+	dataDir, signup, reserved, cmdPrefix                       *string
 	refusePlain, reservedOnly                                  *bool
 	accountKey                                                 config.Blob
 	loginTimeout                                               *time.Duration
@@ -128,7 +129,10 @@ func main() {
 	var handler session.Handler = echo.Handler{}
 	var background sync.WaitGroup
 	if !*o.echoOnly {
-		hub := proxy.NewHub(proxy.HubConfig{Gateway: "dev", Log: log})
+		if err := proxy.CheckPrefix(*o.cmdPrefix); err != nil {
+			fail("GATEWAY_CMD_PREFIX", err)
+		}
+		hub := proxy.NewHub(proxy.HubConfig{Gateway: "dev", CommandPrefix: *o.cmdPrefix, Log: log})
 		front, err := frontDoor(o, hub, log)
 		if err != nil {
 			fail("accounts", err)
@@ -266,7 +270,7 @@ func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, er
 		RefusePlaintext: *o.refusePlain,
 		SecureHint:      hint,
 		Timeout:         *o.loginTimeout,
-		Realms:          proxy.Handler{Hub: hub},
+		Realms:          proxy.Handler{Hub: hub, Prefix: *o.cmdPrefix},
 		Issuer:          *o.name,
 	})
 }

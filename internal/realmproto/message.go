@@ -77,6 +77,10 @@ type Hello struct {
 type Welcome struct {
 	Version int    `json:"version"`
 	Gateway string `json:"gateway"`
+	// CommandPrefix is the character that marks the gateway's own commands
+	// (">lobby"); lines starting with it and a letter never reach a realm
+	// (§5a). Absent means ">". A realm uses it to word its help.
+	CommandPrefix string `json:"command_prefix,omitempty"`
 }
 
 // Reject refuses a realm; the gateway closes the link after sending it.
@@ -559,6 +563,9 @@ func (m *Hello) validate() error {
 func (m *Welcome) validate() error {
 	if m.Version < 1 || m.Version > maxVersion {
 		return fieldErr("welcome", "version", "is out of range")
+	}
+	if p := m.CommandPrefix; p != "" && (len(p) != 1 || !strings.ContainsRune("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", rune(p[0]))) {
+		return fieldErr("welcome", "command_prefix", "is not one ASCII punctuation character")
 	}
 	return checkLabel("welcome", "gateway", m.Gateway)
 }

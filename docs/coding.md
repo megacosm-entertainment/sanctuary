@@ -56,6 +56,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Bind realm ids to keys; which ids a connected realm may claim | `realmproto.ParseRealmPins`, `RealmIDs`, `cli.RealmTrust` | `internal/realmproto/tls.go`, `internal/cli` |
 | Ping a quiet link, end a silent one | `realmproto.Keepalive`, `Conn.RecvIdle` | `internal/realmproto/keepalive.go` |
 | Gateway side of realm links; route a player to a realm and relay until they leave it (`Play` returns `Back` or `Gone`) | `proxy.Hub`, `proxy.Handler`, `Handler.Play` | `internal/proxy` |
+| Recognise a gateway command (`>lobby`) and check a prefix; list realms for players | `proxy.ParseCommand`, `CheckPrefix`, `RealmList`, `RealmLabel` | `internal/proxy/commands.go` |
 | One reader for a session, shared by stages that take turns (login, lobby, realm) | `session.Inbox` | `internal/session/inbox.go` |
 | Who a session logged in as | `Session.SetAccount`, `Session.Account` | `internal/session/session.go` |
 | Login, sign-up and the lobby (with password and authenticator management), in front of the proxy | `login.New`, `login.Handler` | `internal/login` |

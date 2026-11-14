@@ -28,6 +28,7 @@ import (
 // HubConfig configures a Hub. Zero fields take the defaults.
 type HubConfig struct {
 	Gateway          string        // build id sent in welcome
+	CommandPrefix    string        // sent in welcome; empty means the protocol default ">"
 	MaxRealms        int           // registered realms at once; default 32
 	HandshakeTimeout time.Duration // hello must arrive within this; default 5s (protocol.md §4)
 	Writer           realmproto.WriterLimits
@@ -240,7 +241,7 @@ func (h *Hub) handshake(c *realmproto.Conn, w *realmproto.Writer, allowed func(s
 	h.realms[r.ID] = r
 	h.notify()
 	h.mu.Unlock()
-	if err := w.Send(&realmproto.Welcome{Version: realmproto.Version, Gateway: h.cfg.Gateway}); err != nil {
+	if err := w.Send(&realmproto.Welcome{Version: realmproto.Version, Gateway: h.cfg.Gateway, CommandPrefix: h.cfg.CommandPrefix}); err != nil {
 		h.mu.Lock()
 		delete(h.realms, r.ID)
 		h.notify()

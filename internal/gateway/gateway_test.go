@@ -159,16 +159,16 @@ func TestTelnetEndToEnd(t *testing.T) {
 	if got := c.LastPrompt(); got != tn.EOR {
 		t.Fatalf("prompt ended with %s, want EOR", tn.Describe([]byte{tn.IAC, got}))
 	}
-	// /info reflects what the client negotiated: NAWS and MTTS from the
+	// info reflects what the client negotiated: NAWS and MTTS from the
 	// screen-reader profile.
-	round(t, c, "/info", "120 x 40", "screen reader: true", "encrypted: false")
+	round(t, c, "info", "120 x 40", "screen reader: true", "encrypted: false")
 }
 
 func TestTelnetTLSEndToEnd(t *testing.T) {
 	f := startGateway(t)
 	c := dialTelnet(t, f.TLS, true)
 	round(t, c, "over tls", "You said: over tls")
-	round(t, c, "/info", "telnet+tls (encrypted: true)")
+	round(t, c, "info", "telnet+tls (encrypted: true)")
 }
 
 func TestConnectionLimitPerHost(t *testing.T) {
@@ -205,21 +205,21 @@ func TestWebSocketGMCPEndToEnd(t *testing.T) {
 	if _, err := c.ReadUntil(websocket.OpBinary, "> "); err != nil {
 		t.Fatalf("banner: %v", err)
 	}
-	// Core.Hello is the only identity a browser can send; /info must
+	// Core.Hello is the only identity a browser can send; info must
 	// show it.
 	for _, m := range []struct {
 		op byte
 		s  string
 	}{
 		{websocket.OpText, `Core.Hello {"client":"e2e","version":"7"}`},
-		{websocket.OpBinary, "/info\n"},
+		{websocket.OpBinary, "info\n"},
 	} {
 		if err := c.Send(m.op, []byte(m.s)); err != nil {
 			t.Fatalf("send %q: %v", m.s, err)
 		}
 	}
 	if _, err := c.ReadUntil(websocket.OpBinary, "e2e 7"); err != nil {
-		t.Fatalf("/info after Core.Hello: %v", err)
+		t.Fatalf("info after Core.Hello: %v", err)
 	}
 }
 
@@ -297,8 +297,8 @@ func TestShutdownSaysGoodbyeAndDrains(t *testing.T) {
 func TestConnectionLogsCarrySessionID(t *testing.T) {
 	f := startGateway(t)
 	c := dialTelnet(t, f.Telnet, false)
-	// /quit closes the connection, so there is no prompt to wait for.
-	if err := c.SendLine("/quit"); err != nil {
+	// quit closes the connection, so there is no prompt to wait for.
+	if err := c.SendLine("quit"); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.WaitText("Goodbye"); err != nil {
@@ -354,7 +354,7 @@ func TestLogsNeverContainPlayerText(t *testing.T) {
 		t.Fatal(err)
 	}
 	round(t, c, "sync", "You said: sync") // the GMCP before it has been processed
-	round(t, c, "/secret")
+	round(t, c, "secret")
 	round(t, c, "CANARY-SECRET")
 
 	w, _ := dialWS(t, f.WS, wstest.DialOptions{TLS: true, Protocols: []string{websocket.ProtoGMCP}})
@@ -404,7 +404,7 @@ func TestPlainWebSocketReportsUnencrypted(t *testing.T) {
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status %d, want 101", resp.StatusCode)
 	}
-	if err := c.Send(websocket.OpBinary, []byte("/info\n")); err != nil {
+	if err := c.Send(websocket.OpBinary, []byte("info\n")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.ReadUntil(websocket.OpBinary, "ws/gmcp (encrypted: false)"); err != nil {

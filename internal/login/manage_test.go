@@ -204,8 +204,8 @@ func TestLobbyHelpListsAccountCommands(t *testing.T) {
 	contains(t, login(t, h, "Mara", goodPassword), "'help'")
 	h.Type("help")
 	text := prompt(t, h, "Realm")
-	for _, w := range []string{"password", "totp", "totp off", "codes"} {
-		contains(t, text, "'"+w+"'")
+	for _, w := range []string{"password", "totp", "totp off", "codes", ">lobby", ">help"} {
+		contains(t, text, w)
 	}
 }
 

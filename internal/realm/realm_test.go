@@ -161,24 +161,24 @@ func TestInputReachesHandlerAndOutputComesBack(t *testing.T) {
 func TestClientInfoReachesHandler(t *testing.T) {
 	s := registered(t)
 	s.open(t, 1, realmproto.ClientInfo{Name: "mushclient", Terminal: "ANSI", MTTS: intp(13), Charset: "UTF-8", Width: 80, Height: 26})
-	s.say(1, "/info")
+	s.say(1, "info")
 	out, _ := s.gw.TextFor(1)
 	for _, want := range []string{"mushclient", "MTTS:          13", "80 x 26", "Transport:     telnet"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("/info missing %q:\n%s", want, out)
+			t.Errorf("info missing %q:\n%s", want, out)
 		}
 	}
 	s.gw.Send(&realmproto.Client{Session: 1, Client: realmproto.ClientInfo{Name: "mushclient", Width: 120, Height: 40}})
-	s.say(1, "/info")
+	s.say(1, "info")
 	if out, _ := s.gw.TextFor(1); !strings.Contains(out, "120 x 40") {
-		t.Errorf("/info after a Client update:\n%s\nwant the new window size 120 x 40", out)
+		t.Errorf("info after a Client update:\n%s\nwant the new window size 120 x 40", out)
 	}
 }
 
 func TestHiddenInputUsesInputMode(t *testing.T) {
 	s := registered(t)
 	s.open(t, 1, realmproto.ClientInfo{})
-	s.say(1, "/secret")
+	s.say(1, "secret")
 	if m := rpt.Expect[*realmproto.InputMode](s.gw); !m.Hidden || m.Session != 1 {
 		t.Fatalf("input.mode = %+v, want hidden for session 1", m)
 	}
@@ -197,9 +197,9 @@ func TestHiddenInputUsesInputMode(t *testing.T) {
 func TestQuitSendsOutputThenSessionClose(t *testing.T) {
 	s := registered(t)
 	s.open(t, 1, realmproto.ClientInfo{})
-	s.say(1, "/quit")
+	s.say(1, "quit")
 	if m := rpt.Expect[*realmproto.Text](s.gw); m.Text != "Goodbye.\n" {
-		t.Fatalf("first message after /quit = %+v, want Goodbye", m)
+		t.Fatalf("first message after quit = %+v, want Goodbye", m)
 	}
 	if c := rpt.Expect[*realmproto.SessionClose](s.gw); c.Session != 1 {
 		t.Fatalf("session.close = %+v, want session 1", c)

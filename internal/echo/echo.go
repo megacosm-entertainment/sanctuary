@@ -3,7 +3,7 @@
 // realm; nothing else in the gateway changes.
 //
 // A few slash commands exist only to exercise negotiation against real
-// clients: /info, /secret (password-style hidden input), /quit.
+// clients: info, secret (password-style hidden input), quit.
 package echo
 
 import (
@@ -20,7 +20,7 @@ import (
 const prompt = "> "
 
 // DefaultBanner is what a session sees first when Handler.Banner is empty.
-const DefaultBanner = "Sanctuary gateway, stage 01: echo mode.\nType anything and it comes back. /help lists commands.\n"
+const DefaultBanner = "Sanctuary gateway, stage 01: echo mode.\nType anything and it comes back. 'help' lists commands.\n"
 
 // DefaultShutdown is sent at shutdown when Handler.Shutdown is empty.
 const DefaultShutdown = "\nThe gateway is shutting down. Goodbye.\n"
@@ -85,16 +85,16 @@ func (h Handler) ServeSession(ctx context.Context, s *session.Session) {
 				continue
 			}
 			switch strings.ToLower(strings.TrimSpace(line.Text)) {
-			case "/quit":
+			case "quit":
 				s.Send(session.Text{Text: "Goodbye.\n"})
 				return
-			case "/help":
-				s.Send(session.Text{Text: "/info    show what your client negotiated\n" +
-					"/secret  type a line with local echo turned off\n" +
-					"/quit    disconnect\n"})
-			case "/info":
+			case "help":
+				s.Send(session.Text{Text: "info    show what your client negotiated\n" +
+					"secret  type a line with local echo turned off\n" +
+					"quit    disconnect\n"})
+			case "info":
 				s.Send(session.Text{Text: describe(s)})
-			case "/secret":
+			case "secret":
 				hidden = true
 				s.Send(session.InputMode{Hidden: true})
 				s.Send(session.Prompt{Text: "Secret: "})

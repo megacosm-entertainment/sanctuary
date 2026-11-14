@@ -60,7 +60,7 @@ Look for, and reproduce where possible:
 
 Build and run the gateway from the copy on loopback (`go run ./cmd/sanctuary-gateway -telnet 127.0.0.1:29000 -telnets 127.0.0.1:29010 -ws 127.0.0.1:29020 -log-level debug`), and write small Go programs in the copy (using `telnettest` and `wstest` where they help) to attack it. Watch for panics, hangs, unbounded memory or goroutines, a session that never closes, or another session being affected. Ideas:
 
-- **Telnet:** negotiation storms; a subnegotiation that never ends; IAC split across reads; endless distinct TTYPE replies; MNES variable floods and huge values; NAWS of 0x0 and 65535x65535; MCCP2 toggled rapidly; DO ECHO / WILL ECHO races with `/secret`.
+- **Telnet:** negotiation storms; a subnegotiation that never ends; IAC split across reads; endless distinct TTYPE replies; MNES variable floods and huge values; NAWS of 0x0 and 65535x65535; MCCP2 toggled rapidly; DO ECHO / WILL ECHO races with `secret`.
 - **GMCP:** maximum-size payloads, deeply nested JSON, invalid UTF-8, package names at the length limit, `Core.Hello` with hostile values.
 - **WebSocket:** fragments that never finish; ping floods; frames that claim large lengths; control frames over 125 bytes; Origin variants (case, trailing dot, default port, `null`); subprotocol case and whitespace tricks; text frames on the telnet subprotocol.
 - **Resources:** a client that connects and never reads (does the queue policy disconnect it?); many connections from one host versus `-max-per-host`; a TLS client that stalls mid-handshake; slowloris on the WebSocket HTTP upgrade.
@@ -68,7 +68,8 @@ Build and run the gateway from the copy on loopback (`go run ./cmd/sanctuary-gat
 ### D. Security and privacy
 
 - **Logs:** send a unique canary string as input, in GMCP payloads and in MNES values, then grep the gateway log. Player text and GMCP payloads must never appear (design doc §02). Client identity strings are allowed at debug level.
-- **Output:** try to get escape sequences, OSC 8 links, bidi overrides or raw IAC bytes back out through echo or `/info`.
+- **Output:** try to get escape sequences, OSC 8 links, bidi overrides or raw IAC bytes back out through echo or `info`.
+- **Gateway commands:** get a `>word` line to a realm, or make an ordinary line act as one: leading spaces and tabs, a lookalike such as U+FF1E or U+203A, control characters between `>` and the word, the prefix split across telnet reads or WebSocket frames, input sent just as a realm turns hidden input on or off.
 - **Trust:** check that client claims (TTYPE, MNES, `Core.Hello`, IPADDRESS) never change anything but presentation.
 
 ### E. Fuzzing

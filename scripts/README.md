@@ -16,5 +16,5 @@ Run from anywhere; each script changes to `src/` itself. Go is the only requirem
 
 Manual checks against real clients (with `scripts/run.sh` running; ports are forwarded to the host):
 
-- Mudlet, MUSHclient or TinTin++: connect to `localhost:9000`, or `localhost:9010` with TLS. Type `/info` to see what the client negotiated, and `/secret` to test hidden input.
+- Mudlet, MUSHclient or TinTin++: connect to `localhost:9000`, or `localhost:9010` with TLS. Sign up with `new`, press Enter in the lobby to enter the stub realm, then type `info` to see what the client negotiated and `secret` to test hidden input. `>lobby` brings you back to the lobby; `>help` lists the gateway's commands.
 - Browser: open `https://localhost:9020/`, accept the certificate warning, then use the test page.

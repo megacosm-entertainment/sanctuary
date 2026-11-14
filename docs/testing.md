@@ -35,7 +35,7 @@ Every test or table case that encodes a rule says where the rule comes from: an 
 
 - Format: `Func(input) = got, want want`. A failure must be diagnosable without rerunning.
 - Print protocol bytes symbolically (`telnet.Describe`, `%q`), never as bare `[255 253 24]`.
-- When parsing structured output such as `/info`, compare fields, not exact column alignment, unless the layout is itself the contract.
+- When parsing structured output such as `info`, compare fields, not exact column alignment, unless the layout is itself the contract.
 
 ## 5. Every assertion must be able to fail
 

@@ -19,6 +19,7 @@ const (
 	msgReconnected  = "Reconnected.\n"
 	msgGaveUp       = "The realm did not come back in time. Please reconnect later.\n"
 	msgShutdown     = "\nThe gateway is shutting down. Goodbye.\n"
+	msgEnteringFmt  = "Entering %[1]s. '%[2]slobby' comes back out; '%[2]shelp' lists the gateway's commands.\n"
 )
 
 // Handler routes each player to a realm and relays their session both ways.
@@ -39,6 +40,8 @@ type Handler struct {
 	// Hold is how long a player whose realm went away is held for it to
 	// return. Default 2 minutes (protocol.md §8).
 	Hold time.Duration
+	// Prefix marks gateway commands (see DefaultPrefix); DefaultPrefix if empty.
+	Prefix string
 }
 
 // outcome is how one attachment to a realm ended.
@@ -81,10 +84,15 @@ func (h Handler) Play(ctx context.Context, s *session.Session, in *session.Inbox
 	if hold == 0 {
 		hold = 2 * time.Minute
 	}
-	r, ok := h.waitFor(ctx, s, in, h.Realm, wait, false)
+	r, ok, quit := h.waitFor(ctx, s, in, h.Realm, wait, false)
+	if quit {
+		return Gone
+	}
 	if !ok {
 		return backIfConnected(ctx, s, in)
 	}
+	p := h.CommandPrefix()
+	s.Send(session.Text{Text: fmt.Sprintf(msgEnteringFmt, RealmLabel(RealmInfo{r.ID, r.Name, r.Build}), p)})
 	for {
 		switch h.relay(ctx, s, in, r) {
 		case ended:
@@ -94,7 +102,9 @@ func (h Handler) Play(ctx context.Context, s *session.Session, in *session.Inbox
 		}
 		s.Send(session.Text{Text: fmt.Sprintf(msgHoldFmt, spoken(hold))})
 		s.Log().Info("holding player for realm", "realm", r.ID, "for", hold)
-		if r, ok = h.waitFor(ctx, s, in, r.ID, hold, true); !ok {
+		if r, ok, quit = h.waitFor(ctx, s, in, r.ID, hold, true); quit {
+			return Gone
+		} else if !ok {
 			return backIfConnected(ctx, s, in)
 		}
 		s.Send(session.Text{Text: msgReconnected})
@@ -120,14 +130,17 @@ func backIfConnected(ctx context.Context, s *session.Session, in *session.Inbox)
 // waitFor waits up to d for realm id (any realm when id is empty) to be
 // available, answering the player meanwhile. holding is true when the
 // player is already in a game and waiting for their realm to return.
-func (h Handler) waitFor(ctx context.Context, s *session.Session, in *session.Inbox, id string, d time.Duration, holding bool) (*Realm, bool) {
+//
+// The player may leave with a gateway command: >lobby gives ok false,
+// >quit gives quit true.
+func (h Handler) waitFor(ctx context.Context, s *session.Session, in *session.Inbox, id string, d time.Duration, holding bool) (r *Realm, ok, quit bool) {
 	// Answer at once when the realm is up; otherwise say something, so a
 	// screen-reader user is not left with silence.
 	quick, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	r, err := h.Hub.pick(quick, id)
 	cancel()
 	if err == nil {
-		return r, true
+		return r, true, false
 	}
 	if !holding {
 		s.Send(session.Text{Text: msgConnecting})
@@ -145,7 +158,7 @@ func (h Handler) waitFor(ctx context.Context, s *session.Session, in *session.In
 	for {
 		select {
 		case r := <-found:
-			return r, true
+			return r, true, false
 		case <-wctx.Done():
 			switch {
 			case ctx.Err() != nil:
@@ -155,15 +168,24 @@ func (h Handler) waitFor(ctx context.Context, s *session.Session, in *session.In
 			default:
 				s.Send(session.Text{Text: msgNoRealm})
 			}
-			return nil, false
+			return nil, false, false
 		case ev := <-in.Events:
-			if _, ok := ev.(session.Line); ok {
+			l, isLine := ev.(session.Line)
+			if !isLine {
+				continue
+			}
+			switch h.command(s, l.Text, id) {
+			case toLobby:
+				return nil, false, false
+			case quitAll:
+				return nil, false, true
+			case notCommand:
 				s.Send(session.Text{Text: fmt.Sprintf(msgStillWaitFmt, spoken(time.Until(until)))})
 			}
 		case <-in.Done:
-			return nil, false // the player left while waiting
+			return nil, false, false // the player left while waiting
 		case <-s.Done():
-			return nil, false
+			return nil, false, false
 		}
 	}
 }
@@ -211,6 +233,21 @@ func (h Handler) relay(ctx context.Context, s *session.Session, in *session.Inbo
 			leave(reason, "session ended")
 			return ended
 		case ev := <-in.Events:
+			// Gateway commands never reach the realm, except while the
+			// realm has asked for hidden input: that line may be a password
+			// that happens to start with the prefix.
+			if l, ok := ev.(session.Line); ok && !a.hidden.Load() {
+				switch h.command(s, l.Text, r.ID) {
+				case toLobby:
+					leave(realmproto.ClosedQuit, "player went to the lobby")
+					return returned
+				case quitAll:
+					leave(realmproto.ClosedQuit, "player quit")
+					return ended
+				case stay:
+					continue
+				}
+			}
 			m := toRealm(s.ID, ev)
 			if m == nil {
 				continue

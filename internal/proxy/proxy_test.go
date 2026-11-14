@@ -77,6 +77,10 @@ func player(t *testing.T, h *hub, realm *rpt.Peer, handler proxy.Handler) (*sess
 	if open.Session != p.Session.ID {
 		t.Fatalf("session.open for %d, want the player's session %d", open.Session, p.Session.ID)
 	}
+	// The gateway says how to get back out before the realm says anything.
+	if txt := sessiontest.ExpectNext[session.Text](p); !strings.Contains(txt.Text, "'>lobby'") {
+		t.Fatalf("first output %q, want the entry hint naming >lobby", txt.Text)
+	}
 	return p, open
 }
 

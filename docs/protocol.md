@@ -123,9 +123,11 @@ After TLS, the realm speaks first:
 The gateway answers with one of:
 
 ```json
-{"type": "welcome", "version": 1, "gateway": "…build…"}
+{"type": "welcome", "version": 1, "gateway": "…build…", "command_prefix": ">"}
 {"type": "reject", "reason": "unsupported-version", "versions": [1]}
 ```
+
+`command_prefix` is the gateway's command prefix (§5a); absent means `>`.
 
 and closes the link after a `reject`. Reasons: `unsupported-version`,
 `duplicate-realm`, `bad-hello`, `too-many-realms`, `not-allowed` (§3). A realm that receives a
@@ -172,6 +174,24 @@ Rules:
 - Output is applied to the session's bounded queue without blocking
   (`session.QueuePolicy`). If that disconnects the player, the realm gets
   `session.closed` with reason `overflow`.
+
+## 5a. Gateway commands
+
+A line that starts with the gateway's command prefix directly followed by a
+letter is a command for the gateway, not the realm: `>lobby`, `>help`,
+`>realms`, `>quit` with the default prefix `>`. The gateway answers it and
+never forwards it, so **realms must not define commands that start with
+the prefix**, and a command the gateway adds later cannot take over one
+of theirs. The prefix followed by a space or a non-letter (`> quoted
+text`) is an ordinary line and is forwarded.
+
+The prefix is one ASCII punctuation character, set by the gateway's
+`SANCTUARY_GATEWAY_CMD_PREFIX` and sent in `welcome` (§4), so a realm can
+name it in its own help. Two exceptions keep players' input intact:
+
+- While a realm has asked for hidden input (`input.mode`, a password
+  prompt), every line goes to the realm, whatever it starts with.
+- GMCP is never inspected for commands.
 
 ## 6. Output metadata
 

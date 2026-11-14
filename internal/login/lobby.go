@@ -11,11 +11,19 @@ import (
 )
 
 const (
-	msgHelloFmt    = "Hello, %s.\n"
-	msgRealms      = "Realms:\n"
-	msgNoRealms    = "No realms are running right now. Press Enter to wait for one, or type 'quit' to leave.\n"
-	msgLobbyHelp   = "Type a realm's number or name to enter it, or press Enter for the first one.\n'realms' lists them again; 'quit' leaves.\nYour account: 'password' changes your password; 'totp' sets up an authenticator app,\n'totp off' removes it, 'codes' gives you new recovery codes.\n"
+	msgHelloFmt   = "Hello, %s.\n"
+	msgNoRealms   = "Press Enter to wait for one, or type 'quit' to leave.\n"
+	msgLobbyHelpF = "Type a realm's number or name to enter it, or press Enter for the first one.\n" +
+		"  realms    list them again\n" +
+		"  password  change your password\n" +
+		"  totp      set up an authenticator app ('totp off' removes it)\n" +
+		"  codes     new recovery codes for your authenticator\n" +
+		"  quit      leave\n" +
+		"In a realm, the gateway's commands start with %[1]s: '%[1]slobby' comes back here and\n" +
+		"'%[1]shelp' lists the rest. They work here too, so '%[1]spassword' is the same as 'password'.\n"
 	msgNoSuch      = "There is no realm called that. Type 'realms' to see the list.\n"
+	msgUnknownFmt  = "There is no gateway command '%[1]s%[2]s'. 'help' lists them.\n"
+	msgInLobby     = "You are in the lobby.\n"
 	msgBackInLobby = "\nYou are back in the lobby.\n"
 	msgLobbyPrompt = "Realm (Enter for %s): "
 	msgLobbyWait   = "Lobby (Enter to wait for a realm): "
@@ -23,40 +31,58 @@ const (
 )
 
 // lobby lists realms and takes the player into the one they choose, and
-// back here when they leave it, until they quit or disconnect.
+// back here when they leave it, until they quit or disconnect. Commands
+// work bare or with the gateway's prefix, as they would in a realm.
 func (t *turn) lobby(a *account.Account) {
 	t.say(fmt.Sprintf(msgHelloFmt, a.Name) + msgLobbyHint)
+	prefix := t.h.cfg.Realms.CommandPrefix()
 	list := true
 	for {
 		realms := t.h.cfg.Realms.Hub.Realms()
 		if list {
-			t.say(menu(realms))
+			menu := proxy.RealmList(realms, "")
+			if len(realms) == 0 {
+				menu += msgNoRealms
+			}
+			t.say(menu)
 			list = false
 		}
 		prompt := msgLobbyWait
 		if len(realms) > 0 {
-			prompt = fmt.Sprintf(msgLobbyPrompt, label(realms[0]))
+			prompt = fmt.Sprintf(msgLobbyPrompt, proxy.RealmLabel(realms[0]))
 		}
 		line, err := t.ask(prompt, false)
 		if err != nil {
 			return
 		}
 		choice := strings.TrimSpace(line)
-		switch strings.ToLower(choice) {
+		command := strings.ToLower(choice)
+		name, rest, prefixed := proxy.ParseCommand(prefix, choice)
+		if prefixed {
+			command = strings.TrimSpace(name + " " + strings.ToLower(rest))
+		}
+		switch command {
 		case "quit":
 			t.say(msgGoodbye)
 			return
 		case "help", "?":
-			t.say(msgLobbyHelp)
+			t.say(fmt.Sprintf(msgLobbyHelpF, prefix))
 			continue
 		case "realms", "list", "look":
 			list = true
 			continue
+		case "lobby":
+			t.say(msgInLobby)
+			continue
 		}
-		if handled, err := t.manage(&a, choice); handled {
+		if handled, err := t.manage(&a, command); handled {
 			if err != nil {
 				return
 			}
+			continue
+		}
+		if prefixed {
+			t.say(fmt.Sprintf(msgUnknownFmt, prefix, sanitize.Untrusted(name)))
 			continue
 		}
 		id, ok := pick(realms, choice)
@@ -72,27 +98,6 @@ func (t *turn) lobby(a *account.Account) {
 		t.say(msgBackInLobby)
 		list = true
 	}
-}
-
-// label is how a realm is named to players. The name comes from the
-// realm's hello; it is sanitised like any text from a realm.
-func label(r proxy.RealmInfo) string {
-	if r.Name == "" {
-		return r.ID
-	}
-	return sanitize.Untrusted(r.Name)
-}
-
-func menu(realms []proxy.RealmInfo) string {
-	if len(realms) == 0 {
-		return msgNoRealms
-	}
-	var b strings.Builder
-	b.WriteString(msgRealms)
-	for i, r := range realms {
-		fmt.Fprintf(&b, "  %d. %s\n", i+1, label(r))
-	}
-	return b.String()
 }
 
 // pick resolves a choice: empty for the first realm (or any, when none is

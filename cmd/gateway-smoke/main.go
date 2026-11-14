@@ -168,13 +168,13 @@ func telnetChecks() {
 		return contains(out, err, "You said: red text end")
 	}())
 
-	out, err = c.Round("/info")
-	check("telnet: /info shows MNES name, screen reader, NAWS and UTF-8",
+	out, err = c.Round("info")
+	check("telnet: info shows MNES name, screen reader, NAWS and UTF-8",
 		contains(out, err, "SmokeTest 1.0", "XTERM-256COLOR", "screen reader: true", "120 x 40", "UTF-8"))
 	check("telnet: the realm knows the account (session.open)", contains(out, err, "Account:       "+*accountName))
 	check("telnet: client-supplied IPADDRESS is not stored", func() error {
 		if strings.Contains(out, "198.51.100.7") {
-			return errors.New("IPADDRESS shown in /info")
+			return errors.New("IPADDRESS shown in info")
 		}
 		return nil
 	}())
@@ -193,12 +193,12 @@ func telnetChecks() {
 
 	c.Text.Reset()
 	n := len(c.Prompts)
-	err = c.SendLine("/secret")
+	err = c.SendLine("secret")
 	if err == nil {
 		// Wait for the prompt's terminator too, so the next round starts clean.
 		err = c.Pump(telnettest.DefaultTimeout, func() bool { return c.Got(tn.WILL, tn.OptEcho) && len(c.Prompts) > n })
 	}
-	check("telnet: /secret sends WILL ECHO (input masking)", err)
+	check("telnet: secret sends WILL ECHO (input masking)", err)
 	out, err = c.Round("hunter2")
 	check("telnet: hidden input not echoed, ECHO released", func() error {
 		if err != nil {
@@ -237,11 +237,27 @@ func telnetChecks() {
 	}())
 
 	tp := &telnetPlayer{c: c}
-	err = tp.line("/quit")
+	err = tp.line("quit")
 	if err == nil {
 		out, err = tp.until("back in the lobby")
 	}
-	check("telnet: /quit in the realm returns to the lobby, still connected", err)
+	check("telnet: quit in the realm returns to the lobby, still connected", err)
+	err = tp.line("")
+	if err == nil {
+		_, err = tp.until("> ")
+	}
+	if err == nil {
+		err = tp.line(">lobby")
+	}
+	if err == nil {
+		out, err = tp.until("back in the lobby")
+	}
+	check("telnet: >lobby leaves the realm from the gateway side", func() error {
+		if err == nil && strings.Contains(out, "You said") {
+			return errors.New("the realm received >lobby")
+		}
+		return err
+	}())
 	err = tp.line("quit")
 	if err == nil {
 		err = c.Pump(telnettest.DefaultTimeout, func() bool { return false })
@@ -314,7 +330,7 @@ func tlsChecks() {
 	}())
 	out, err := c.Round("over tls")
 	check("tls: echo", contains(out, err, "You said: over tls"))
-	out, err = c.Round("/info")
+	out, err = c.Round("info")
 	check("tls: session reports encrypted transport", contains(out, err, "telnet+tls (encrypted: true)"))
 	check("tls: the realm knows the account", contains(out, err, "Account:       "+*accountName))
 }
@@ -383,12 +399,12 @@ func wsChecks() {
 		check("ws/gmcp: echo after valid and malformed GMCP text frames", err)
 		out := ""
 		if err == nil {
-			err = c.Send(ws.OpBinary, []byte("/info\n"))
+			err = c.Send(ws.OpBinary, []byte("info\n"))
 		}
 		if err == nil {
 			out, err = c.ReadUntil(ws.OpBinary, "Terminal:")
 		}
-		check("ws/gmcp: /info names the client from GMCP Core.Hello", contains(out, err, "SmokeTest"))
+		check("ws/gmcp: info names the client from GMCP Core.Hello", contains(out, err, "SmokeTest"))
 		check("ws/gmcp: ping answered with pong", func() error {
 			if err := c.Send(ws.OpPing, []byte("ping")); err != nil {
 				return err

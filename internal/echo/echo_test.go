@@ -18,7 +18,7 @@ func start(t *testing.T) *sessiontest.Harness {
 	return h
 }
 
-// infoFields parses /info output ("Key:   value" lines) into a map, so
+// infoFields parses info output ("Key:   value" lines) into a map, so
 // tests check values without depending on column alignment.
 func infoFields(out string) map[string]string {
 	fields := map[string]string{}
@@ -77,7 +77,7 @@ func TestEchoStripsControlSequences(t *testing.T) {
 
 func TestSecretHidesInputThenRestoresEcho(t *testing.T) {
 	h := start(t)
-	h.Type("/secret")
+	h.Type("secret")
 	// Order matters: echo must be off before the prompt invites typing.
 	if m := sessiontest.ExpectNext[session.InputMode](h); !m.Hidden {
 		t.Fatal("first event: InputMode{Hidden: false}, want hidden")
@@ -107,7 +107,7 @@ func TestInfoReportsClient(t *testing.T) {
 		Charset: "UTF-8", Width: 120, Height: 40,
 	}})
 	h.Send(session.GMCP{Package: "Core.Hello", Data: json.RawMessage(`{"client":"Mudlet"}`)})
-	h.Type("/info")
+	h.Type("info")
 	out, _ := h.UntilPrompt()
 	if strings.Contains(out, "\x1b") {
 		t.Fatalf("client-supplied escape reached output: %q", out)
@@ -121,13 +121,13 @@ func TestInfoReportsClient(t *testing.T) {
 	}
 	for k, v := range want {
 		if got[k] != v {
-			t.Errorf("/info %s = %q, want %q", k, got[k], v)
+			t.Errorf("info %s = %q, want %q", k, got[k], v)
 		}
 	}
 }
 
 func TestQuitCloses(t *testing.T) {
-	for _, cmd := range []string{"/quit", "/QUIT", "  /Quit  "} { // commands ignore case and padding
+	for _, cmd := range []string{"quit", "QUIT", "  Quit  "} { // commands ignore case and padding
 		t.Run(cmd, func(t *testing.T) {
 			h := start(t)
 			h.Type(cmd)
@@ -139,12 +139,12 @@ func TestQuitCloses(t *testing.T) {
 
 func TestInfoWithoutClientReports(t *testing.T) {
 	h := start(t)
-	h.Type("/info")
+	h.Type("info")
 	out, _ := h.UntilPrompt()
 	got := infoFields(out)
 	for k, want := range map[string]string{"Client": "(not reported)", "Window": "not reported", "MTTS": "not reported"} {
 		if got[k] != want {
-			t.Errorf("/info %s = %q, want %q", k, got[k], want)
+			t.Errorf("info %s = %q, want %q", k, got[k], want)
 		}
 	}
 }

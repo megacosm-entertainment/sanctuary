@@ -112,7 +112,8 @@ set_defaults "$gw_project" \
     SANCTUARY_REFUSE_PLAINTEXT_LOGIN=false \
     SANCTUARY_RESERVED_NAMES= \
     SANCTUARY_RESERVED_NAMES_REPLACE=false \
-    SANCTUARY_LOGIN_TIMEOUT=2m
+    SANCTUARY_LOGIN_TIMEOUT=2m \
+    SANCTUARY_GATEWAY_CMD_PREFIX=">"
 
 # ACCOUNT_KEY encrypts TOTP secrets. Unlike the link identities it is set
 # only when missing, never replaced: a new key would make every existing

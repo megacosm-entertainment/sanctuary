@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,7 +117,7 @@ func TestRealmOverMTLSServesPlayers(t *testing.T) {
 	waitRegistered(t, ls.hub, "live")
 
 	p := sessiontest.New(t, proxy.Handler{Hub: ls.Hub})
-	if banner, _ := p.UntilPrompt(); banner != "Separate realm.\n" {
+	if banner, _ := p.UntilPrompt(); !strings.HasSuffix(banner, "comes back out; '>help' lists the gateway's commands.\nSeparate realm.\n") {
 		t.Fatalf("banner = %q, want the realm's", banner)
 	}
 	p.Type("over the wire")
