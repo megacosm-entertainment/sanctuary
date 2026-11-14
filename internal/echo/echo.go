@@ -19,10 +19,20 @@ import (
 
 const prompt = "> "
 
-// Handler echoes input. It is stateless and safe to share.
-type Handler struct{}
+// DefaultBanner is what a session sees first when Handler.Banner is empty.
+const DefaultBanner = "Sanctuary gateway, stage 01: echo mode.\nType anything and it comes back. /help lists commands.\n"
 
-func (Handler) ServeSession(ctx context.Context, s *session.Session) {
+// DefaultShutdown is sent at shutdown when Handler.Shutdown is empty.
+const DefaultShutdown = "\nThe gateway is shutting down. Goodbye.\n"
+
+// Handler echoes input. It is stateless and safe to share. The stub realm
+// runs the same handler behind the realm protocol, with its own messages.
+type Handler struct {
+	Banner   string // first output on a new session; DefaultBanner if empty
+	Shutdown string // sent when ctx is cancelled; DefaultShutdown if empty
+}
+
+func (h Handler) ServeSession(ctx context.Context, s *session.Session) {
 	events := make(chan session.Inbound)
 	readErr := make(chan error, 1)
 	go func() {
@@ -40,14 +50,22 @@ func (Handler) ServeSession(ctx context.Context, s *session.Session) {
 		}
 	}()
 
-	s.Send(session.Text{Text: "Sanctuary gateway, stage 01: echo mode.\nType anything and it comes back. /help lists commands.\n"})
+	banner := h.Banner
+	if banner == "" {
+		banner = DefaultBanner
+	}
+	s.Send(session.Text{Text: banner})
 	s.Send(session.Prompt{Text: prompt})
 
 	hidden := false
 	for {
 		select {
 		case <-ctx.Done():
-			s.Send(session.Text{Text: "\nThe gateway is shutting down. Goodbye.\n"})
+			bye := h.Shutdown
+			if bye == "" {
+				bye = DefaultShutdown
+			}
+			s.Send(session.Text{Text: bye})
 			return
 		case <-readErr:
 			return

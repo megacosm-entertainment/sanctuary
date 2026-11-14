@@ -50,6 +50,15 @@ func (c *Conn) Send(m Message) error {
 	return WriteFrame(c.rw, payload)
 }
 
+// SendRaw writes payload as one frame without encoding or validating it.
+// It exists so tests can play a broken or newer peer (unknown types,
+// malformed JSON); production code sends only through Send.
+func (c *Conn) SendRaw(payload []byte) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	return WriteFrame(c.rw, payload)
+}
+
 // SetReadDeadline and SetWriteDeadline apply when the underlying stream
 // supports deadlines (net.Conn, tls.Conn); otherwise they do nothing.
 func (c *Conn) SetReadDeadline(t time.Time) error {

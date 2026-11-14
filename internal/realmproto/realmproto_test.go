@@ -364,3 +364,22 @@ func TestCloseUnblocksRecv(t *testing.T) {
 	}
 	gw.Close()
 }
+
+// A realm that runs session handlers sees the same client the gateway saw,
+// minus the fields that never cross the link.
+func TestToSessionInvertsClientFrom(t *testing.T) {
+	in := session.ClientInfo{
+		Name: "mudlet", Version: "5.1.1", Terminal: "ANSI", MTTS: 64 | 1, HasMTTS: true,
+		Charset: "UTF-8", Width: 100, Height: 30,
+	}
+	got := realmproto.ClientFrom(in).ToSession()
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("ClientFrom(c).ToSession() = %+v, want %+v", got, in)
+	}
+	if !got.ScreenReader() {
+		t.Fatal("ToSession lost the MTTS screen-reader bit")
+	}
+	if none := (realmproto.ClientInfo{Name: "x"}).ToSession(); none.HasMTTS {
+		t.Fatalf("ToSession(no mtts).HasMTTS = true, want false")
+	}
+}

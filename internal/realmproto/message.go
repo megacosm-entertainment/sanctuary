@@ -260,6 +260,24 @@ func ClientFrom(c session.ClientInfo) ClientInfo {
 	return w
 }
 
+// ToSession converts wire client info back to the session form, for a realm
+// that runs session handlers. ScreenReader is not copied: session.ClientInfo
+// derives it from the MTTS bit, which is the claim the client actually made.
+func (c ClientInfo) ToSession() session.ClientInfo {
+	s := session.ClientInfo{
+		Name:     c.Name,
+		Version:  c.Version,
+		Terminal: c.Terminal,
+		Charset:  c.Charset,
+		Width:    c.Width,
+		Height:   c.Height,
+	}
+	if c.MTTS != nil {
+		s.MTTS, s.HasMTTS = *c.MTTS, true
+	}
+	return s
+}
+
 // ── Registry of types ───────────────────────────────────────
 
 type entry struct {

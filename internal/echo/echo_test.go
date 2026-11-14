@@ -38,6 +38,14 @@ func TestBannerAndPrompt(t *testing.T) {
 	}
 }
 
+// The stub realm runs this handler with its own banner (stage 02).
+func TestCustomBanner(t *testing.T) {
+	h := sessiontest.New(t, echo.Handler{Banner: "Stub realm.\n"})
+	if banner, _ := h.UntilPrompt(); banner != "Stub realm.\n" {
+		t.Fatalf("banner = %q, want %q", banner, "Stub realm.\n")
+	}
+}
+
 func TestEchoesInput(t *testing.T) {
 	h := start(t)
 	h.Type("hello, world")
@@ -145,5 +153,13 @@ func TestShutdownSaysGoodbye(t *testing.T) {
 	h := start(t)
 	h.Shutdown()
 	h.ExpectText("shutting down")
+	h.ExpectClosed()
+}
+
+func TestCustomShutdownMessage(t *testing.T) {
+	h := sessiontest.New(t, echo.Handler{Shutdown: "\nThe realm is closing.\n"})
+	h.UntilPrompt()
+	h.Shutdown()
+	h.ExpectText("realm is closing")
 	h.ExpectClosed()
 }

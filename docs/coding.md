@@ -36,7 +36,8 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
 | Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |
 | Realm protocol: frames, messages, validation, in-memory link | `realmproto.Conn`, `realmproto.Pipe`, `Encode`/`Decode` | `internal/realmproto` (spec: [protocol.md](protocol.md)) |
-| Client info as it crosses to a realm (drops MNES variables) | `realmproto.ClientFrom` | `internal/realmproto/message.go` |
+| Client info as it crosses to a realm (drops MNES variables), and back | `realmproto.ClientFrom`, `ClientInfo.ToSession` | `internal/realmproto/message.go` |
+| Realm side of a link: handshake, players as `session.Transport`s | `realm.Serve` | `internal/realm` |
 | Test clients and harnesses | see [testing.md §1](testing.md#1-use-the-shared-scaffolding-extend-it-dont-hand-roll) | |
 
 ## 3. Dependencies
