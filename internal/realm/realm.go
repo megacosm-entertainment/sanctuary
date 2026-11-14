@@ -44,6 +44,10 @@ type Config struct {
 	// its handler. A player past it is disconnected (reason "overflow")
 	// rather than stalling the link for everyone else. Default 256.
 	InputBuffer int
+
+	// Keepalive pings the gateway on a quiet link and ends a link that has
+	// gone silent (protocol.md §8). Zero fields take the defaults.
+	Keepalive realmproto.Keepalive
 }
 
 // RejectedError is returned by Serve when the gateway refuses the realm.
@@ -71,6 +75,7 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 		players: map[uint64]*player{},
 		reg:     session.NewRegistry(),
 		w:       realmproto.NewWriter(c, cfg.Writer),
+		ka:      cfg.Keepalive,
 	}
 	defer l.w.Close()
 	// Cancelling ctx closes the link, which unblocks Recv, including while
@@ -127,6 +132,7 @@ type link struct {
 	log  *slog.Logger
 	reg  *session.Registry
 	w    *realmproto.Writer // the only writer to conn
+	ka   realmproto.Keepalive
 
 	mu      sync.Mutex
 	players map[uint64]*player
@@ -164,7 +170,7 @@ func (l *link) handshake() error {
 
 func (l *link) run(ctx context.Context) error {
 	for {
-		m, err := l.conn.Recv()
+		m, err := l.ka.Recv(l.conn, l.w)
 		if err != nil {
 			return err
 		}

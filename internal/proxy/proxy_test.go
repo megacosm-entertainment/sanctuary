@@ -433,3 +433,14 @@ func TestStalledRealmDoesNotBlockGatewayReader(t *testing.T) {
 		t.Fatal("gateway neither kept reading nor dropped a realm that stopped reading")
 	}
 }
+
+// A realm that goes silent is dropped and its players told, rather than
+// left attached to a dead link.
+func TestSilentRealmDropped(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{Keepalive: realmproto.Keepalive{Idle: 30 * time.Millisecond, Grace: 30 * time.Millisecond}})
+	realm := h.register(t, "quiet")
+	p, _ := player(t, h, realm, proxy.Handler{})
+	rpt.Expect[*realmproto.Ping](realm) // never answered
+	p.ExpectText("realm has gone away")
+	p.ExpectClosed()
+}

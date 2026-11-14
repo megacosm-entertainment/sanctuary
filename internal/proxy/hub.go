@@ -30,6 +30,7 @@ type HubConfig struct {
 	MaxRealms        int           // registered realms at once; default 32
 	HandshakeTimeout time.Duration // hello must arrive within this; default 5s (protocol.md §4)
 	Writer           realmproto.WriterLimits
+	Keepalive        realmproto.Keepalive // per link; zero fields take the defaults
 	Log              *slog.Logger
 }
 
@@ -201,6 +202,7 @@ func (h *Hub) handshake(c *realmproto.Conn, w *realmproto.Writer) (*Realm, error
 		w:        w,
 		log:      h.log.With("realm", hello.Realm),
 		sessions: map[uint64]*attached{},
+		ka:       h.cfg.Keepalive,
 		gone:     make(chan struct{}),
 	}
 	h.mu.Lock()
@@ -231,6 +233,7 @@ type Realm struct {
 
 	conn *realmproto.Conn
 	w    *realmproto.Writer
+	ka   realmproto.Keepalive
 	log  *slog.Logger
 
 	mu        sync.Mutex
@@ -270,7 +273,7 @@ func (r *Realm) session(id uint64) *attached {
 // disconnected by the session itself.
 func (r *Realm) run() error {
 	for {
-		m, err := r.conn.Recv()
+		m, err := r.ka.Recv(r.conn, r.w)
 		if err != nil {
 			return err
 		}

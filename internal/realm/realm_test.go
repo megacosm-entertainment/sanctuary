@@ -448,3 +448,15 @@ func TestPlayerOutputBacklogDisconnectsOnlyThatPlayer(t *testing.T) {
 		}
 	}
 }
+
+// A gateway that goes silent (no pong, nothing) ends the link, so the realm
+// can reconnect instead of serving a connection nobody is on.
+func TestSilentGatewayEndsLink(t *testing.T) {
+	s := registered(t, func(c *realm.Config) {
+		c.Keepalive = realmproto.Keepalive{Idle: 30 * time.Millisecond, Grace: 30 * time.Millisecond}
+	})
+	rpt.Expect[*realmproto.Ping](s.gw) // received, deliberately not answered
+	if err := s.wait(t); !errors.Is(err, realmproto.ErrPeerSilent) {
+		t.Fatalf("Serve with a silent gateway = %v, want ErrPeerSilent", err)
+	}
+}

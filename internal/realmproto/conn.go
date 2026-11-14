@@ -2,6 +2,8 @@ package realmproto
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -37,6 +39,38 @@ func (c *Conn) RecvLimit(limit int) (Message, error) {
 		return nil, err
 	}
 	return Decode(payload, c.peer)
+}
+
+// ErrIdle reports that no frame started within the idle time. Nothing was
+// consumed, so the link is intact and the caller may read again.
+var ErrIdle = errors.New("realmproto: link idle")
+
+// RecvIdle reads the next message, waiting at most idle for one to begin.
+// If none begins it returns ErrIdle with the stream untouched. A frame that
+// has begun must complete within frameTimeout; one that stalls part-way
+// leaves the stream unusable, and the error says so. It requires a stream
+// with read deadlines (net.Conn, tls.Conn, net.Pipe).
+func (c *Conn) RecvIdle(idle, frameTimeout time.Duration) (Message, error) {
+	c.SetReadDeadline(time.Now().Add(idle))
+	if _, err := c.br.Peek(1); err != nil {
+		c.SetReadDeadline(time.Time{})
+		if isTimeout(err) {
+			return nil, ErrIdle
+		}
+		return nil, err
+	}
+	c.SetReadDeadline(time.Now().Add(frameTimeout))
+	m, err := c.Recv()
+	c.SetReadDeadline(time.Time{})
+	if err != nil && isTimeout(err) {
+		return nil, fmt.Errorf("realmproto: frame stalled part-way: %w", err)
+	}
+	return m, err
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // Send encodes and writes one message.
