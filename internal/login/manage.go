@@ -23,6 +23,7 @@ const (
 		"Enter this key by hand, choosing a time-based code of 6 digits:\n  %s\n" +
 		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n"
 	msgTOTPConfirm = "The 6-digit code your app shows (Enter to cancel): "
+	msgSameKey     = "This is the same key as last time: if your app already has it, just type its code.\n"
 	msgTOTPOn      = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
 	msgTOTPOff     = "Your authenticator is removed, with its recovery codes.\n"
 	msgCodesFmt    = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
@@ -137,9 +138,17 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 		t.say(msgTOTPHave)
 		return nil, errFailed
 	}
-	secret, err := account.NewTOTPSecret()
-	if err != nil {
-		return nil, t.trouble("making a TOTP secret", err)
+	// One key per session until set-up succeeds: retrying after a failed
+	// scan or a wrong code keeps the key the app may already hold.
+	secret := t.pendingTOTP
+	if secret == nil {
+		var err error
+		if secret, err = account.NewTOTPSecret(); err != nil {
+			return nil, t.trouble("making a TOTP secret", err)
+		}
+		t.pendingTOTP = secret
+	} else {
+		t.say(msgSameKey)
 	}
 	t.say(fmt.Sprintf(msgTOTPIntroFmt, account.TOTPDisplay(secret), account.TOTPURI(t.issuer(), a.Name, secret)))
 	var step int64
@@ -189,6 +198,7 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 	if err != nil {
 		return nil, t.trouble("enrolling TOTP", err)
 	}
+	t.pendingTOTP = nil
 	t.s.Log().Info("authenticator set up", "account", a.Name)
 	t.say(msgTOTPOn)
 	t.say(fmt.Sprintf(msgCodesFmt, codeList(shown)))

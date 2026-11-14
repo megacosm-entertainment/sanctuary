@@ -194,6 +194,8 @@ type turn struct {
 	ctx  context.Context // what ends this stage: the login deadline while logging in
 	base context.Context // the gateway's: cancelled at shutdown
 	src  string
+	// pendingTOTP is a key shown for set-up but not yet confirmed.
+	pendingTOTP []byte
 }
 
 func (t *turn) say(text string) { t.s.Send(session.Text{Text: text}) }

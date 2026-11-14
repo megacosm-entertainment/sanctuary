@@ -257,3 +257,33 @@ func TestWrongLengthCodeIsExplained(t *testing.T) {
 	h2.Type(account.TOTPCode(secret, clk.now()))
 	prompt(t, h2, "Realm")
 }
+
+// A failed set-up does not change the key: the app may already hold it.
+func TestRetriedSetupKeepsTheKey(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h := f.start()
+	inLobby(t, h, "Mara", goodPassword)
+	start := func() string {
+		h.Type("totp")
+		hiddenPrompt(t, h, "current password")
+		h.Type(goodPassword)
+		intro := prompt(t, h, "6-digit code")
+		return uriSecret.FindStringSubmatch(intro)[1]
+	}
+	first := start()
+	h.Type("")
+	prompt(t, h, "Realm")
+	h.Type("totp")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	intro := prompt(t, h, "6-digit code")
+	contains(t, intro, "same key as last time")
+	if again := uriSecret.FindStringSubmatch(intro)[1]; again != first {
+		t.Fatal("a retried set-up showed a different key")
+	}
+	secret, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(first)
+	h.Type(account.TOTPCode(secret, clk.now()))
+	contains(t, prompt(t, h, "Realm"), "authenticator is set up")
+}
