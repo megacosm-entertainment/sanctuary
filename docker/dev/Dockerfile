@@ -20,11 +20,12 @@ LABEL org.opencontainers.image.title="Sanctuary dev environment" \
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Base packages. Upgrade first so every rebuild picks up Debian security
-# fixes. gcc + libc6-dev: the race detector needs cgo. gnupg: verifying the
-# Claude Code repository key below. telnet: manual protocol testing.
+# fixes. gcc + libc6-dev: the race detector needs cgo. gnupg and gpgv:
+# checking the Claude Code and Doppler repository keys below, and apt's
+# signature checks on those repositories. telnet: manual protocol testing.
 RUN apt-get update && apt-get -y upgrade && \
     apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg git openssh-client \
+      ca-certificates curl gnupg gpgv git openssh-client \
       gcc libc6-dev \
       bash sudo less vim procps ripgrep jq telnet locales tzdata && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -64,6 +65,23 @@ RUN set -eux; \
       > /etc/apt/sources.list.d/claude-code.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends claude-code; \
+    apt-get clean; rm -rf /var/lib/apt/lists/*
+
+# Doppler CLI, for settings and identities from Doppler (scripts/run.sh
+# -doppler, scripts/compose.sh -doppler), from Doppler's signed apt
+# repository. The key is checked against its full fingerprint (whose last 16
+# digits are the key ID in Doppler's install instructions) before apt trusts
+# it. No Doppler token is ever baked in: log in, or set DOPPLER_TOKEN, at
+# run time.
+ARG DOPPLER_REPO_FPR=BD8F51EC1320748CED4E6E3BDE2A7741A397C129
+RUN set -eux; \
+    curl -fsSLo /etc/apt/keyrings/doppler.asc https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key; \
+    fpr="$(gpg --show-keys --with-colons /etc/apt/keyrings/doppler.asc | awk -F: '$1=="fpr"{print $10; exit}')"; \
+    [ "$fpr" = "$DOPPLER_REPO_FPR" ] || { echo "Doppler key fingerprint mismatch: $fpr" >&2; exit 1; }; \
+    echo "deb [signed-by=/etc/apt/keyrings/doppler.asc] https://packages.doppler.com/public/cli/deb/debian any-version main" \
+      > /etc/apt/sources.list.d/doppler.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends doppler; \
     apt-get clean; rm -rf /var/lib/apt/lists/*
 
 # User: the same uid/gid (9000) as the legacy image, so files on the shared

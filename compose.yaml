@@ -41,8 +41,10 @@ services:
 
   realm-stub:
     <<: *hardening
-    build: { context: ., dockerfile: docker/runtime/Dockerfile }
+    # The image the gateway service builds; building it again here only
+    # repeats the build. Never pulled: it exists only locally.
     image: sanctuary-runtime:dev
+    pull_policy: never
     command: ["/sanctuary-realm"]
     env_file:
       - path: deploy/realm-stub.env

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -40,9 +41,23 @@ func Logger(level string) *slog.Logger {
 		fmt.Fprintf(os.Stderr, "bad %sLOG_LEVEL / -log-level %q: %v\n", config.Prefix, level, err)
 		os.Exit(2)
 	}
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+	log := slog.New(NewHandler(os.Stdout, l))
 	slog.SetDefault(log)
 	return log
+}
+
+// NewHandler is the commands' log format: JSON, with durations written as
+// Go duration text ("20s", "2m0s") rather than slog's default of integer
+// nanoseconds, which nobody reading a log can take in at a glance.
+func NewHandler(w io.Writer, level slog.Leveler) slog.Handler {
+	return slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level, ReplaceAttr: readableDurations})
+}
+
+func readableDurations(_ []string, a slog.Attr) slog.Attr {
+	if a.Value.Kind() == slog.KindDuration {
+		return slog.String(a.Key, a.Value.Duration().String())
+	}
+	return a
 }
 
 // Report logs every setting that is not at its default (value and source)
