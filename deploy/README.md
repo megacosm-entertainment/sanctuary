@@ -96,20 +96,25 @@ server. `ACCOUNT_KEY` (in Doppler for dev and stg) encrypts TOTP secrets:
 keep it, because with a new key every TOTP enrolment stops working.
 
 Staff manage accounts with the gateway binary's `account` command, which
-reads the same settings and is safe while the gateway runs. In compose,
-run it inside the gateway's container, so it sees the same volume and
-environment:
+reads the same settings and is safe while the gateway runs.
+`scripts/account.sh` runs it for the compose deployment, in a short-lived
+container of the gateway service (same image, settings and volume):
 
-    docker compose exec gateway /sanctuary-gateway account list
-    docker compose exec gateway /sanctuary-gateway account create -role staff Mara
-    docker compose exec gateway /sanctuary-gateway account reset -totp Mara
-    docker compose exec gateway /sanctuary-gateway account invite -expires 72h
-    docker compose exec gateway /sanctuary-gateway account disable Mara "reason for staff"
+    scripts/account.sh -doppler stg list
+    scripts/account.sh -doppler stg create -role staff Mara
+    scripts/account.sh -doppler stg reset -totp Mara
+    scripts/account.sh -doppler stg invite -expires 72h
+    scripts/account.sh -doppler stg disable Mara "reason for staff"
 
-(`podman compose` the same.) `create` and `reset` print a temporary
-password once; the player must change it at their next login.
-`sanctuary-gateway account help` lists every command. Outside compose,
-`bin/sanctuary-gateway account ...` works on `data/`.
+Leave out `-doppler stg` for the local `.dev/env` settings. Not `compose
+exec`: under rootless Podman, exec into the hardened gateway container
+fails before the command starts (`crun: write to /proc/self/oom_score_adj:
+Permission denied`).
+
+`create` and `reset` print a temporary password once; the player must
+change it at their next login. `scripts/account.sh help` lists every
+command. Outside compose, `bin/sanctuary-gateway account ...` works on
+`data/`.
 
 ## Keys and trust
 

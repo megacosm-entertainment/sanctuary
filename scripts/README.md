@@ -9,6 +9,7 @@ Run from anywhere; each script changes to `src/` itself. Go is the only requirem
 | `scripts/smoke.sh -external` | The same client checks against a gateway you already started on 9000/9010/9020. |
 | `scripts/devkeys.sh` | Creates the development realm-link identities in `.dev/keys` (git-ignored, never overwritten) and writes `.dev/env/*.env` from them, for `run.sh -split` and `compose.yaml`. |
 | `scripts/compose.sh [-doppler CONFIG]` | Runs `compose.yaml` (default `up --build`) with local identities, or with each service's settings served from Doppler as an ephemeral env file. |
+| `scripts/account.sh [-doppler CONFIG] COMMAND` | Staff account commands (`list`, `create`, `reset`, ...) against the compose deployment's accounts, in a short-lived gateway container. |
 | `scripts/doppler-seed.sh dev\|stg` | Fills both Doppler projects' config with working defaults (addresses, pins, identities). Rerun to rotate keys; refuses production. |
 | `scripts/vulncheck.sh` | Checks the code against the Go vulnerability database with a pinned `govulncheck`, which reports only vulnerabilities our code can reach. Exits non-zero if any are found. Downloads the tool on first use, so run it in the devcontainer. |
 | `scripts/run.sh` | Builds and runs the gateway in the foreground on 9000 (telnet), 9010 (telnet+TLS) and 9020 (WSS), using a generated dev certificate. Extra args go to the gateway, e.g. `-log-level debug` or `-ws-plain`. |
