@@ -269,3 +269,22 @@ func TestHelpIsReported(t *testing.T) {
 		t.Fatalf("Parse(-help) = %v, want flag.ErrHelp", err)
 	}
 }
+
+// Doppler's --format env (and compose) put multi-line values, such as PEM
+// certificates, inside one double-quoted value over several lines.
+func TestParseEnvFileMultilineValue(t *testing.T) {
+	in := "SANCTUARY_A=1\nSANCTUARY_CERT=\"-----BEGIN CERTIFICATE-----\nMIIB\nabc=\n-----END CERTIFICATE-----\"\nSANCTUARY_B=\"ends with \\\\\"\nSANCTUARY_C=2\n"
+	got, err := config.ParseEnvFile(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("ParseEnvFile: %v", err)
+	}
+	if want := "-----BEGIN CERTIFICATE-----\nMIIB\nabc=\n-----END CERTIFICATE-----"; got["SANCTUARY_CERT"] != want {
+		t.Fatalf("CERT = %q, want %q", got["SANCTUARY_CERT"], want)
+	}
+	if got["SANCTUARY_B"] != `ends with \` || got["SANCTUARY_A"] != "1" || got["SANCTUARY_C"] != "2" {
+		t.Fatalf("neighbouring values wrong: %q", got)
+	}
+	if _, err := config.ParseEnvFile(strings.NewReader("SANCTUARY_CERT=\"never closed\nSANCTUARY_X=1\n")); err == nil {
+		t.Fatal("a quote never closed was accepted")
+	}
+}

@@ -40,3 +40,29 @@ race_flag() {
         echo "-race"
     fi
 }
+
+# dev_env KEYS DIR: write DIR/gateway.env and DIR/realm-stub.env, the
+# per-environment half of compose.yaml's settings, from the identities in
+# KEYS. They hold private keys, so the directory and files are owner-only.
+dev_env() {
+    local keys="$1" dir="$2"
+    mkdir -p "$dir"
+    chmod 700 "$dir"
+    # pem FILE: the file as one double-quoted env value, newlines as \n.
+    pem() { printf '"%s"' "$(awk '{printf "%s\\n", $0}' "$1")"; }
+    (
+        umask 077
+        {
+            echo "# Written by scripts/devkeys.sh from $keys. Private: never commit."
+            echo "SANCTUARY_REALM_CERT=$(pem "$keys/gateway.crt")"
+            echo "SANCTUARY_REALM_KEY=$(pem "$keys/gateway.key")"
+            echo "SANCTUARY_REALM_PINS=$(cat "$keys/realm-stub.pin")"
+        } >"$dir/gateway.env"
+        {
+            echo "# Written by scripts/devkeys.sh from $keys. Private: never commit."
+            echo "SANCTUARY_CERT=$(pem "$keys/realm-stub.crt")"
+            echo "SANCTUARY_KEY=$(pem "$keys/realm-stub.key")"
+            echo "SANCTUARY_GATEWAY_PINS=$(cat "$keys/gateway.pin")"
+        } >"$dir/realm-stub.env"
+    )
+}

@@ -4,8 +4,8 @@ The reference small deployment: the gateway and a realm as separate
 containers, linked by the realm protocol over mTLS (docs/protocol.md).
 
 ```bash
-scripts/devkeys.sh         # once: realm-link identities in .dev/keys
-docker compose up --build
+scripts/compose.sh                # local identities (made on first use)
+scripts/compose.sh -doppler stg   # settings and identities from Doppler
 ```
 
 Then connect a MUD client to `localhost:9000` (telnet), `localhost:9010`
@@ -39,16 +39,36 @@ variable `SANCTUARY_REALM_LISTEN`, and the file line
 setting that is not at its default, and where it came from.
 
 Because the environment overrides the files, a secrets manager needs no
-special support:
+special support when running the binaries directly:
 
 ```bash
-doppler run -- docker compose up
+doppler run --project sanctuary-gateway --config dev -- sanctuary-gateway
+scripts/run.sh -doppler dev      # both processes, in the devcontainer
 ```
 
-`SANCTUARY_*` variables from Doppler (or Vault, or a CI secret store)
-replace the file values. Only `SANCTUARY_*` variables are read; anything
-else in the environment, such as `DOPPLER_TOKEN`, is ignored and never
-logged.
+Only `SANCTUARY_*` variables are read; anything else in the environment,
+such as `DOPPLER_TOKEN`, is ignored and never logged.
+
+Compose does not pass the host environment into containers, so each
+service reads two env files: `deploy/<service>.env` (the same everywhere,
+in git) and `.dev/env/<service>.env` (identities, pins and anything else
+that differs per environment). `scripts/devkeys.sh` writes the second from
+local identities; `scripts/compose.sh -doppler stg` serves it from Doppler
+with `doppler run --mount`, as an ephemeral file that exists only while
+compose runs.
+
+### Doppler layout
+
+| Project | Configs | Holds |
+| --- | --- | --- |
+| `sanctuary-gateway` | `dev`, `stg` | `SANCTUARY_REALM_LISTEN`, `REALM_CERT`, `REALM_KEY`, `REALM_PINS`, `STUB_REALM`, `LOG_LEVEL` |
+| `sanctuary-stub-realm` | `dev`, `stg` | `SANCTUARY_GATEWAY`, `GATEWAY_PINS`, `CERT`, `KEY`, `ID`, `NAME`, `LOG_LEVEL` |
+
+Separate projects because the two programs share setting names (`NAME`,
+`LOG_LEVEL`) with different values. `scripts/doppler-seed.sh dev|stg`
+fills a config with working defaults: `dev` uses the identities in
+`.dev/keys`, `stg` generates its own and keeps no local copy. Rerunning it
+rotates the keys. It refuses production.
 
 ### Secrets
 
@@ -73,8 +93,6 @@ certificates from a CA (cert-manager, for example) and set
 `SANCTUARY_REALM_CA` on the gateway and `SANCTUARY_GATEWAY_CA` on realms;
 pins and a CA may be used together.
 
-The key files are mode 0600 and owned by you, so compose runs the
-containers as your user (`SANCTUARY_UID`, `SANCTUARY_GID`, default 1000).
 
 ## Realms on other hosts
 

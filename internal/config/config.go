@@ -367,9 +367,21 @@ func ParseEnvFile(r io.Reader) (map[string]string, error) {
 		if !ok || key == "" || strings.ContainsAny(key, " \t\"'") {
 			return nil, fmt.Errorf("line %d: want KEY=VALUE", n)
 		}
-		v, err := unquote(strings.TrimSpace(val))
+		val = strings.TrimSpace(val)
+		// A double-quoted value may run over several lines, as Doppler's
+		// --format env writes certificates and compose accepts: keep
+		// reading until the line that closes the quote.
+		start := n
+		for strings.HasPrefix(val, `"`) && !closesQuote(val) {
+			if !sc.Scan() {
+				return nil, fmt.Errorf("line %d (%s): unterminated quote", start, key)
+			}
+			n++
+			val += "\n" + strings.TrimRight(sc.Text(), " \t\r")
+		}
+		v, err := unquote(val)
 		if err != nil {
-			return nil, fmt.Errorf("line %d (%s): %w", n, key, err)
+			return nil, fmt.Errorf("line %d (%s): %w", start, key, err)
 		}
 		if _, dup := out[key]; dup {
 			return nil, fmt.Errorf("line %d: %s set twice", n, key)
@@ -419,4 +431,18 @@ func unquote(v string) (string, error) {
 		v = strings.TrimSpace(v[:i])
 	}
 	return v, nil
+}
+
+// closesQuote reports whether a value that starts with a double quote also
+// ends with an unescaped one (so it is complete on this line).
+func closesQuote(v string) bool {
+	if len(v) < 2 || v[len(v)-1] != '"' {
+		return false
+	}
+	// Count the backslashes before the final quote: an odd number escapes it.
+	bs := 0
+	for i := len(v) - 2; i >= 1 && v[i] == '\\'; i-- {
+		bs++
+	}
+	return bs%2 == 0
 }
