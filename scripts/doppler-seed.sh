@@ -50,6 +50,27 @@ set_plain() {
 set_file() {
     doppler secrets set --project "$1" --config "$config" --silent --no-interactive "$2" <"$3" >/dev/null
 }
+has_secret() { # PROJECT NAME
+    doppler secrets --project "$1" --config "$config" --only-names --json | grep -q "\"$2\""
+}
+# set_defaults PROJECT NAME=VALUE...: settings people tune in Doppler. Each
+# is set only when missing, so rerunning the seed keeps their changes.
+set_defaults() {
+    local project="$1"; shift
+    local names kv missing=()
+    names="$(doppler secrets --project "$project" --config "$config" --only-names --json)"
+    for kv in "$@"; do
+        if grep -q "\"${kv%%=*}\"" <<<"$names"; then
+            echo "    ${kv%%=*} already set; kept"
+        else
+            missing+=("$kv")
+        fi
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        set_plain "$project" "${missing[@]}"
+        for kv in "${missing[@]}"; do echo "    ${kv%%=*} set to the default"; done
+    fi
+}
 
 case "$config" in
     dev)
@@ -58,6 +79,7 @@ case "$config" in
         realm_gateway=127.0.0.1:9030
         level=debug
         realm_name="Stub realm"
+        data_dir=data
         publish=()
         ;;
     stg)
@@ -66,6 +88,7 @@ case "$config" in
         realm_gateway=gateway:9030
         level=info
         realm_name="Stub realm (staging)"
+        data_dir=/data   # the gateway-data volume
         # Host ports for compose, clear of a devcontainer that forwards
         # 9000-9020. Read by scripts/compose.sh, not by the gateway.
         publish=(PUBLISH_TELNET=19000 PUBLISH_TELNETS=19010 PUBLISH_WS=19020)
@@ -82,13 +105,19 @@ set_plain "$gw_project" \
 set_file "$gw_project" SANCTUARY_REALM_CERT "$keys/gateway.crt"
 set_file "$gw_project" SANCTUARY_REALM_KEY "$keys/gateway.key"
 
+# Account settings, at the gateway's defaults (sanctuary-gateway -help).
+set_defaults "$gw_project" \
+    SANCTUARY_DATA_DIR="$data_dir" \
+    SANCTUARY_SIGNUP=open \
+    SANCTUARY_REFUSE_PLAINTEXT_LOGIN=false \
+    SANCTUARY_RESERVED_NAMES= \
+    SANCTUARY_RESERVED_NAMES_REPLACE=false \
+    SANCTUARY_LOGIN_TIMEOUT=2m
+
 # ACCOUNT_KEY encrypts TOTP secrets. Unlike the link identities it is set
 # only when missing, never replaced: a new key would make every existing
 # TOTP enrolment unreadable. dev uploads the key local runs use
 # (data/account.key, made here if needed), so -doppler and plain runs agree.
-has_secret() { # PROJECT NAME
-    doppler secrets --project "$1" --config "$config" --only-names --json | grep -q "\"$2\""
-}
 if has_secret "$gw_project" SANCTUARY_ACCOUNT_KEY; then
     echo "    SANCTUARY_ACCOUNT_KEY already set; kept (replacing it would orphan TOTP enrolments)"
 else
