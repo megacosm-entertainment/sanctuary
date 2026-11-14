@@ -48,14 +48,14 @@ Done:
 - Login and lobby (`internal/login`), in front of the realm proxy: log in, or sign up as `SANCTUARY_SIGNUP` allows (open, invite code, or staff only). A wrong name and a wrong password get the same message. Passwords are typed with echo off. Plain telnet gets a warning (`SANCTUARY_REFUSE_PLAINTEXT_LOGIN` refuses it, pointing at TLS). TOTP or a recovery code is asked for when enrolled, a staff-reset password must be changed, disabled accounts are refused (only after a correct password), and old hashes are upgraded. Failed logins are throttled per account and per address, across connections (`login.Throttle`); so are sign-ups per address. A connection that has not logged in within `SANCTUARY_LOGIN_TIMEOUT` (2 minutes) is closed, which settles the unauthenticated half of RT-1-A1.
 - The lobby lists realms; Enter picks the first. Leaving a realm (`/quit` in the stub) comes back to the lobby; `quit` there disconnects. The account travels to the realm in `session.open` (protocol.md §7a), and the stub's `/info` shows it.
 - Settings: `DATA_DIR` (default `data`), `SIGNUP`, `REFUSE_PLAINTEXT_LOGIN`, `RESERVED_NAMES`, `RESERVED_NAMES_REPLACE`, `ACCOUNT_KEY`, `LOGIN_TIMEOUT`. Without `ACCOUNT_KEY` the gateway generates `DATA_DIR/account.key` and warns. `scripts/doppler-seed.sh` sets the key, and the other account settings at their defaults, in Doppler only when they are missing, so a reseed keeps what has been changed there (a new key would also orphan TOTP enrolments); dev uploads the same `data/account.key` local runs use. Compose keeps accounts on the `gateway-data` volume.
+- Staff commands, `sanctuary-gateway account list|show|create|reset|invite|role|disable|enable`: the same settings as the gateway, safe while it runs (the store's lock and revision checks). `create` and `reset` print a temporary password that must be changed at the next login; `reset -totp` removes a lost authenticator; reserved names need `-allow-reserved`. Changes apply at the next login: a player already connected stays connected (see open items). Compose usage is in `deploy/README.md`.
 
 Try it: `scripts/run.sh`, connect, type `new`, and choose a name and password. Accounts are kept in `data/` (git-ignored); delete it to start over.
 
 Next:
 
-1. 3b: staff commands, `sanctuary-gateway account create|reset|invite|role|disable`, working on the same store while the gateway runs.
-2. 3c: from the lobby, TOTP enrolment (with a live test in an authenticator app) and password changes.
-3. `Char.Login` over GMCP, then OAuth.
+1. 3c: from the lobby, TOTP enrolment (with a live test in an authenticator app) and password changes.
+2. `Char.Login` over GMCP, then OAuth.
 
 ## Stage 02: internal session protocol and a stub world server (done)
 
@@ -128,6 +128,8 @@ Decided for this stage, beyond the design document:
 | Idle timeout for logged-in players, in the lobby or a realm (the rest of RT-1-A1; the login timeout covers connections that never log in) | With realm idle handling, after stage 03 |
 | Rootless Podman's default port forwarding (rootlessport) hides players' addresses: every connection appears to come from the Podman network, so `MAX_PER_HOST` would cap the whole server and logs cannot tell players apart. Use pasta networking or a proxy that preserves the client address | Before real players connect |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |
+| Disabling an account or resetting its password does not reach a player already connected: the staff command is a separate process. The gateway needs to notice (watch the store, or a local control socket) and end or re-check those sessions | Before staff rely on disable for moderation
+| Command editor: commands and their permissions edited in-game, not compiled in. Two scopes, since the gateway (lobby, account and staff commands) and each realm have their own command sets, and realms may differ from each other. Arguments are in scope too, not just base commands: permissions on particular arguments (old_game hard-codes checks such as `restore all` in each `do_` function) and aliases that run another command with transformed arguments. Learn from old_game's CMDEdit (`do_cmdedit`, `src/olc.c`), which was bolted onto OLC, and its unbuilt plan, `src/docs/PLAN_command_enhancements.md`; do better on scoping and permissions | With the building tools (design §13), after roles and staff permissions exist |
 | Decisions still open in design §14: scene presentation, combat timing, remote replay, script migration | Before the stages they block |
 
 ## Environment

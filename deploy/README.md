@@ -88,6 +88,29 @@ Secret content is refused in a config file (files get committed) and has no
 flag form (flags show in `ps`). It is never logged: the startup report
 shows `[secret]`.
 
+## Accounts
+
+Accounts live in `DATA_DIR` (`/data`, the `gateway-data` volume). Back the
+volume up; it holds password hashes, so keep backups as private as the
+server. `ACCOUNT_KEY` (in Doppler for dev and stg) encrypts TOTP secrets:
+keep it, because with a new key every TOTP enrolment stops working.
+
+Staff manage accounts with the gateway binary's `account` command, which
+reads the same settings and is safe while the gateway runs. In compose,
+run it inside the gateway's container, so it sees the same volume and
+environment:
+
+    docker compose exec gateway /sanctuary-gateway account list
+    docker compose exec gateway /sanctuary-gateway account create -role staff Mara
+    docker compose exec gateway /sanctuary-gateway account reset -totp Mara
+    docker compose exec gateway /sanctuary-gateway account invite -expires 72h
+    docker compose exec gateway /sanctuary-gateway account disable Mara "reason for staff"
+
+(`podman compose` the same.) `create` and `reset` print a temporary
+password once; the player must change it at their next login.
+`sanctuary-gateway account help` lists every command. Outside compose,
+`bin/sanctuary-gateway account ...` works on `data/`.
+
 ## Keys and trust
 
 `scripts/devkeys.sh` makes a pinned identity for the gateway and for the

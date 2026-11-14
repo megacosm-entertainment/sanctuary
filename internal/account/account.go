@@ -193,6 +193,8 @@ type Store interface {
 	// otherwise ErrConflict and nothing is written. On success a.Revision
 	// is the new revision.
 	Update(ctx context.Context, a *Account) error
+	// List returns every account, sorted by name ignoring case.
+	List(ctx context.Context) ([]*Account, error)
 	// AddInvite stores an invite, kept only as a hash, valid until expires.
 	AddInvite(ctx context.Context, code, by string, expires time.Time) error
 }

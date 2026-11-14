@@ -195,3 +195,22 @@ func decode(s string) (Params, []byte, []byte, error) {
 	}
 	return p, salt, key, nil
 }
+
+// NewTemporaryPassword is a password staff hand to a player after creating
+// or resetting their account, to be changed at the next login: three
+// groups of five from the recovery-code alphabet (about 74 bits), easy to
+// read out or type.
+func NewTemporaryPassword() (string, error) {
+	var b strings.Builder
+	for i := 0; i < 15; i++ {
+		if i > 0 && i%5 == 0 {
+			b.WriteByte('-')
+		}
+		c, err := uniformIndex(len(recoveryAlphabet))
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(recoveryAlphabet[c])
+	}
+	return b.String(), nil
+}

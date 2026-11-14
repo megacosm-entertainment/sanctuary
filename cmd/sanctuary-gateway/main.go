@@ -88,6 +88,9 @@ type settings struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "account" {
+		os.Exit(runAccount(os.Args[2:], os.LookupEnv, os.Stdout, os.Stderr))
+	}
 	s, o := declare()
 	genIdentity := s.Flags().String("gen-identity", "", "write a new realm-link identity to PREFIX.crt, .key and .pin, print the pin, and exit")
 	cli.Parse(s, os.Args[1:])
@@ -220,15 +223,11 @@ func frontDoor(o settings, hub *proxy.Hub, log *slog.Logger) (*login.Handler, er
 	if err != nil {
 		return nil, err
 	}
-	names, err := account.NewNames(cli.SplitList(*o.reserved), *o.reservedOnly)
+	store, err := openStore(o)
 	if err != nil {
 		return nil, err
 	}
-	store, err := account.OpenFileStore(*o.dataDir)
-	if err != nil {
-		return nil, err
-	}
-	store.Names = names
+	names := store.Names
 	var key *account.SecretKey
 	if o.accountKey.Set() {
 		text, err := o.accountKey.Bytes()

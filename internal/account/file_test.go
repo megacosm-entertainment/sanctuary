@@ -294,3 +294,52 @@ func TestServerReservedNames(t *testing.T) {
 		t.Fatalf("Create(Admin) when the built-in list is replaced = %v, want allowed", err)
 	}
 }
+
+func TestList(t *testing.T) {
+	s, err := OpenFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if got, err := s.List(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("empty store: %v, %v", got, err)
+	}
+	for _, n := range []string{"Zed", "amy", "Bob"} {
+		if err := s.Create(ctx, &Account{ID: "id-" + n, Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A leftover temporary file is not an account.
+	os.WriteFile(filepath.Join(s.dir, "accounts", ".tmp-123"), []byte("{"), 0o600)
+	got, err := s.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, a := range got {
+		names = append(names, a.Name)
+	}
+	if strings.Join(names, ",") != "amy,Bob,Zed" {
+		t.Fatalf("List = %v, want amy, Bob, Zed", names)
+	}
+}
+
+func TestTemporaryPassword(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		pw, err := NewTemporaryPassword()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pw) != 17 || pw[5] != '-' || pw[11] != '-' || strings.Trim(strings.ReplaceAll(pw, "-", ""), recoveryAlphabet) != "" {
+			t.Fatalf("temporary password %q, want XXXXX-XXXXX-XXXXX from the recovery alphabet", pw)
+		}
+		if CheckNewPassword(pw) != nil {
+			t.Fatalf("temporary password %q fails the password rules", pw)
+		}
+		if seen[pw] {
+			t.Fatalf("repeated %q", pw)
+		}
+		seen[pw] = true
+	}
+}

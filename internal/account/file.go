@@ -285,3 +285,32 @@ func writeAtomic(p string, v any) error {
 	defer d.Close()
 	return d.Sync()
 }
+
+// List returns every account, sorted by name ignoring case. It reads
+// without the lock: each file is replaced atomically, so every record read
+// is whole, if possibly a moment old.
+func (s *FileStore) List(ctx context.Context) ([]*Account, error) {
+	entries, err := os.ReadDir(filepath.Join(s.dir, "accounts"))
+	if err != nil {
+		return nil, err
+	}
+	var out []*Account
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || e.IsDir() || strings.HasPrefix(name, ".") {
+			continue // temporary files from writeAtomic, anything else
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		a, err := readAccount(filepath.Join(s.dir, "accounts", e.Name()))
+		if errors.Is(err, ErrNotFound) {
+			continue // removed since ReadDir
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, nil // ReadDir sorts by file name, which is the key
+}
