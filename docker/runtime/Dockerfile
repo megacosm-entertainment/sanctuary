@@ -14,7 +14,11 @@ ARG DEV_IMAGE=ghcr.io/megacosm-entertainment/sanctuary:dev_02
 FROM ${DEV_IMAGE} AS build
 USER root
 WORKDIR /build
-COPY go.mod ./
+# Dependencies first, in their own layer: fetched once and cached until
+# go.mod or go.sum changes, each checked against go.sum (and the Go
+# checksum database) before use.
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
 COPY cmd ./cmd
 COPY internal ./internal
 # Static binaries (no cgo, so no libc), without local paths or debug

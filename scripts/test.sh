@@ -17,6 +17,15 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# The runtime image builds from go.mod, go.sum, cmd/ and internal/ only
+# (docker/runtime/Dockerfile, .dockerignore). Tests here build from the
+# whole checkout, so check that the image would get go.sum too.
+echo "==> image build context"
+if [ -f go.sum ]; then
+    grep -qx '!go.sum' .dockerignore || { echo ".dockerignore does not let go.sum into the image build"; exit 1; }
+    grep -q '^COPY go.mod go.sum ' docker/runtime/Dockerfile || { echo "docker/runtime/Dockerfile does not copy go.sum"; exit 1; }
+fi
+
 echo "==> go vet"
 go vet ./...
 

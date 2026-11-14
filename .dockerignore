@@ -1,7 +1,8 @@
-# Only cmd/, internal/ and go.mod are copied into the build; keep everything
+# Only cmd/, internal/, go.mod and go.sum are copied into the build; keep everything
 # else, and above all any key material, out of the build context.
 *
 !go.mod
+!go.sum
 !cmd/
 !internal/
 **/*.key
