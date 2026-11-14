@@ -34,7 +34,7 @@ func SelfSigned(hosts []string) (tls.Certificate, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Sentience gateway (development)"},
+		Subject:               pkix.Name{CommonName: "Sanctuary gateway (development)"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,

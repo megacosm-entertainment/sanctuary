@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"sentience/internal/gmcp"
-	"sentience/internal/sanitize"
-	"sentience/internal/session"
+	"sanctuary/internal/gmcp"
+	"sanctuary/internal/sanitize"
+	"sanctuary/internal/session"
 )
 
 // GMCPTransport is the gmcp.mudstandards.org subprotocol as a

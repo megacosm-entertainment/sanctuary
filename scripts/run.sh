@@ -5,4 +5,4 @@
 # Ctrl-C shuts it down gracefully.
 source "$(dirname "$0")/lib.sh"
 build_gateway
-exec ./bin/sentience-gateway "$@"
+exec ./bin/sanctuary-gateway "$@"

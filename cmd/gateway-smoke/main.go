@@ -17,10 +17,10 @@ import (
 	"os"
 	"strings"
 
-	tn "sentience/internal/telnet"
-	"sentience/internal/telnet/telnettest"
-	ws "sentience/internal/websocket"
-	"sentience/internal/websocket/wstest"
+	tn "sanctuary/internal/telnet"
+	"sanctuary/internal/telnet/telnettest"
+	ws "sanctuary/internal/websocket"
+	"sanctuary/internal/websocket/wstest"
 )
 
 var (

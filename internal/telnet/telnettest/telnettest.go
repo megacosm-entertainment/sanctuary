@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	tn "sentience/internal/telnet"
+	tn "sanctuary/internal/telnet"
 )
 
 // DefaultTimeout bounds every wait.

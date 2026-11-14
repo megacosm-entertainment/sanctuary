@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"sentience/internal/echo"
-	"sentience/internal/session"
-	"sentience/internal/session/sessiontest"
+	"sanctuary/internal/echo"
+	"sanctuary/internal/session"
+	"sanctuary/internal/session/sessiontest"
 )
 
 // start runs the echo handler and consumes its banner and first prompt.

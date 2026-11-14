@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"sentience/internal/gmcp"
-	"sentience/internal/sanitize"
-	"sentience/internal/session"
+	"sanctuary/internal/gmcp"
+	"sanctuary/internal/sanitize"
+	"sanctuary/internal/session"
 )
 
 // Limits on untrusted input.

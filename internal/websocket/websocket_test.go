@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"sentience/internal/session"
-	"sentience/internal/websocket/wstest"
+	"sanctuary/internal/session"
+	"sanctuary/internal/websocket/wstest"
 )
 
 // ---------------------------------------------------------------- handshake

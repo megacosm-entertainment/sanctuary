@@ -1,4 +1,4 @@
-// Command sentience-gateway is the stage-01 gateway prototype: telnet,
+// Command sanctuary-gateway is the stage-01 gateway prototype: telnet,
 // telnet over TLS and WebSocket, normalised into one session abstraction,
 // echoing input back.
 package main
@@ -14,13 +14,13 @@ import (
 	"strings"
 	"syscall"
 
-	"sentience/internal/echo"
-	"sentience/internal/gateway"
+	"sanctuary/internal/echo"
+	"sanctuary/internal/gateway"
 )
 
 func main() {
 	var (
-		name       = flag.String("name", "Sentience", "MUD name reported over MSSP")
+		name       = flag.String("name", "Sanctuary", "MUD name reported over MSSP")
 		host       = flag.String("public-host", "localhost", "public hostname, advertised in MSSP")
 		telnetAddr = flag.String("telnet", ":9000", "plain telnet listen address (empty disables)")
 		tlsAddr    = flag.String("telnets", ":9010", "telnet+TLS listen address (empty disables)")

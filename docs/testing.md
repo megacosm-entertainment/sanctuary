@@ -78,7 +78,9 @@ Anything that parses untrusted input has a fuzz target with seeds drawn from rea
 
 ## 12. Red-team significant changes
 
-After a significant change, run the `red-team` skill (`/red-team`). It works on a copy of the module, mutates the code to find tests that don't notice, and abuses the protocols looking for breaks. Its findings are leads: verify each one before acting on it, and turn each confirmed break into a test that fails first.
+After a significant change, after a Go or dependency upgrade, and before going public, run the `red-team` skill (`/red-team`). It works on a copy of the module, mutates the code to find tests that don't notice, abuses the protocols, exploits known vulnerabilities in the toolchain and dependencies, and re-attacks every past finding. Its findings are leads: verify each one before acting on it, and turn each confirmed break into a test that fails first.
+
+Record every confirmed finding in [security/redteam-log.md](security/redteam-log.md), with the test that reproduces it. The log is how later runs know what to re-attack.
 
 ## Running
 

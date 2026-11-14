@@ -25,7 +25,7 @@ fi
 
 build_gateway
 log="$(mktemp "${TMPDIR:-/tmp}/gateway-smoke.XXXXXX")"
-./bin/sentience-gateway -log-level debug \
+./bin/sanctuary-gateway -log-level debug \
     -telnet 127.0.0.1:19000 -telnets 127.0.0.1:19010 -ws 127.0.0.1:19020 \
     >"$log" 2>&1 &
 gw=$!

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"sentience/internal/session"
+	"sanctuary/internal/session"
 )
 
 // ---------------------------------------------------------------- fixture

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"sentience/internal/session"
+	"sanctuary/internal/session"
 )
 
 // Timeout bounds every wait.

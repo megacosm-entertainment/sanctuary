@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"sentience/internal/sanitize"
-	"sentience/internal/session"
+	"sanctuary/internal/sanitize"
+	"sanctuary/internal/session"
 )
 
 const prompt = "> "
@@ -40,7 +40,7 @@ func (Handler) ServeSession(ctx context.Context, s *session.Session) {
 		}
 	}()
 
-	s.Send(session.Text{Text: "Sentience gateway, stage 01: echo mode.\nType anything and it comes back. /help lists commands.\n"})
+	s.Send(session.Text{Text: "Sanctuary gateway, stage 01: echo mode.\nType anything and it comes back. /help lists commands.\n"})
 	s.Send(session.Prompt{Text: prompt})
 
 	hidden := false

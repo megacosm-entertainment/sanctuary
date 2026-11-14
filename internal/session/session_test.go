@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"sentience/internal/session"
+	"sanctuary/internal/session"
 )
 
 var discardLog = slog.New(slog.NewTextHandler(io.Discard, nil))

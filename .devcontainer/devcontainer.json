@@ -1,20 +1,18 @@
 {
-    "name": "Sentience MUD Dev Environment",
-    "image": "ghcr.io/megacosm-entertainment/sentience_trixie:latest",
-    "remoteUser": "sentiencemud",
-    "workspaceFolder": "/sentience/src",
-    "workspaceMount": "source=${localWorkspaceFolder}/..,target=/sentience,type=bind",
-    "mounts": [],
-    "features": {
-        // Gateway and world server are Go (design doc §12).
-        "ghcr.io/devcontainers/features/go:1": {
-            "version": "1.23"
-        }
-        //"ghcr.io/devcontainers/features/common-utils:2": {
-        //    "installZsh": true,
-        //    "configureZshAsDefaultShell": true
-        //}
-    },
+    "name": "Sanctuary Dev Environment",
+    // Built from docker/dev/Dockerfile, which provides Go (the security floor
+    // in go.mod), the race detector's C toolchain and Claude Code. The old C
+    // engine's toolchain is in the separate legacy image.
+    "image": "ghcr.io/megacosm-entertainment/sanctuary:dev_01",
+    "remoteUser": "sanctuary",
+    "workspaceFolder": "/sanctuary/src",
+    // The parent folder is mounted so ../old_game is available for reference
+    // (see CLAUDE.md for the rules on reading it).
+    "workspaceMount": "source=${localWorkspaceFolder}/..,target=/sanctuary,type=bind",
+    "mounts": [
+        // Keeps the Claude Code login and settings across container rebuilds.
+        "source=sanctuary-claude,target=/home/sanctuary/.claude,type=volume"
+    ],
     "forwardPorts": [9000, 9010, 9020],
     "portsAttributes": {
         "9000": { "label": "Telnet" },
@@ -22,31 +20,27 @@
         "9020": { "label": "WebSocket" }
     },
     "runArgs": [
-        "--cap-add=SYS_PTRACE",
-        "--security-opt", "seccomp=unconfined"
+        // Lets a debugger (Delve) attach. Docker's default seccomp profile
+        // permits ptrace once this capability is granted, so seccomp stays on.
+        "--cap-add=SYS_PTRACE"
     ],
     "customizations": {
         "vscode": {
             "extensions": [
                 "golang.go",
-                "ms-vscode.cpptools",
-                "cweijan.vscode-redis-client",
-                "eamodio.gitlens",
-                "Doppler.doppler-vscode"
+                "eamodio.gitlens"
             ],
             "settings": {
                 "editor.tabSize": 4,
                 "editor.insertSpaces": true,
-                "[c]": { "editor.tabSize": 4 },
-                "git.enableCommitSigning": true,
+                // Commits are signed (repo-local commit.gpgsign and
+                // user.signingkey). Dev Containers forwards the host's gpg
+                // agent, so the key works here without being copied in.
+                "git.enableCommitSigning": false,
                 "remote.SSH.enableAgentForwarding": true,
                 "git.useConfigOnly": false,
-                "terminal.integrated.cwd": "/sentience/src"
+                "terminal.integrated.cwd": "/sanctuary/src"
             }
         }
-    },
-    "remoteEnv": {
-        "DOPPLER_TOKEN": "${localEnv:DOPPLER_TOKEN}"
-    },
-    //"postCreateCommand": "cd /sentience/src/.deps && ./build_deps.sh"
+    }
 }

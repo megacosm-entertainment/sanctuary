@@ -40,7 +40,7 @@
     line.value = '';
   });
   function sendHello() {
-    if (ws && ws.readyState === 1) ws.send('Core.Hello {"client":"Sentience test client","version":"1"}');
+    if (ws && ws.readyState === 1) ws.send('Core.Hello {"client":"Sanctuary test client","version":"1"}');
   }
   document.getElementById('hello').addEventListener('click', sendHello);
   document.getElementById('bad').addEventListener('click', () => {

@@ -18,12 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"sentience/internal/echo"
-	"sentience/internal/gateway"
-	tn "sentience/internal/telnet"
-	"sentience/internal/telnet/telnettest"
-	"sentience/internal/websocket"
-	"sentience/internal/websocket/wstest"
+	"sanctuary/internal/echo"
+	"sanctuary/internal/gateway"
+	tn "sanctuary/internal/telnet"
+	"sanctuary/internal/telnet/telnettest"
+	"sanctuary/internal/websocket"
+	"sanctuary/internal/websocket/wstest"
 )
 
 // ---------------------------------------------------------------- fixture

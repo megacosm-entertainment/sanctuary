@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"sentience/internal/session"
-	"sentience/internal/telnet"
-	"sentience/internal/websocket"
+	"sanctuary/internal/session"
+	"sanctuary/internal/telnet"
+	"sanctuary/internal/websocket"
 )
 
 //go:embed webclient
@@ -327,7 +327,7 @@ func (g *Gateway) msspVars() []telnet.MSSPVar {
 		{Name: "NAME", Values: []string{g.cfg.Name}},
 		{Name: "PLAYERS", Values: []string{strconv.Itoa(g.reg.Count())}},
 		{Name: "UPTIME", Values: []string{strconv.FormatInt(g.started.Unix(), 10)}},
-		{Name: "CODEBASE", Values: []string{"Sentience Engine"}},
+		{Name: "CODEBASE", Values: []string{"Sanctuary"}},
 		{Name: "FAMILY", Values: []string{"Custom"}},
 	}
 	if p := portOf(g.cfg.TelnetAddr); p != "" {

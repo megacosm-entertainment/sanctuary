@@ -15,8 +15,8 @@ fi
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 
 build_gateway() {
-    echo "==> building bin/sentience-gateway"
-    go build -o bin/sentience-gateway ./cmd/sentience-gateway
+    echo "==> building bin/sanctuary-gateway"
+    go build -o bin/sanctuary-gateway ./cmd/sanctuary-gateway
 }
 
 # -race needs cgo and a C compiler; the devcontainer has gcc.

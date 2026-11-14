@@ -1,6 +1,6 @@
 # Coding guidelines
 
-How code in the Sentience Engine is written, by people or with AI assistance. The architecture and its reasoning live in the design document; this file covers day-to-day practice. Testing has its own guidelines in [testing.md](testing.md).
+How code in Sanctuary is written, by people or with AI assistance. The architecture and its reasoning live in the design document; this file covers day-to-day practice. Testing has its own guidelines in [testing.md](testing.md).
 
 ## 1. Reuse first, then extend, then build
 
@@ -38,7 +38,9 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 
 ## 3. Dependencies
 
-The standard library is the default. A third-party module has to justify itself against the design doc's priorities: a small dependency surface is a security property (§02), and `./sentience` with no configuration must just work (§03). Note the reason for any dependency in the change that adds it.
+The standard library is the default. A third-party module has to justify itself against the design doc's priorities: a small dependency surface is a security property (§02), and `./sanctuary` with no configuration must just work (§03). Note the reason for any dependency in the change that adds it. Every dependency is attack surface: the red team checks each one against known vulnerabilities, and so does an upgrade of Go itself.
+
+**The Go toolchain is a dependency too.** The `go` line in `go.mod` is the security floor: the oldest toolchain allowed to build the gateway. Keep it on a supported release (Go supports its two newest major versions) and raise it to the newest patch release whenever `scripts/vulncheck.sh` reports a fix. Keep the devcontainer's Go version at or above it.
 
 ## 4. Untrusted input
 
@@ -64,7 +66,7 @@ The standard library is the default. A third-party module has to justify itself 
 
 ## 7. Finishing a change
 
-- `scripts/test.sh` passes (vet, tests, race detector); `scripts/smoke.sh` passes for anything touching the gateway.
+- `scripts/test.sh` passes (vet, tests, race detector); `scripts/smoke.sh` passes for anything touching the gateway; `scripts/vulncheck.sh` reports nothing.
 - New behaviour has tests that follow [testing.md](testing.md).
 - Anything reusable you added is in the inventory above.
-- For significant changes, run `/red-team` and resolve what it confirms.
+- For significant changes, and after any Go or dependency upgrade, run `/red-team`, resolve what it confirms, and record each confirmed finding in [security/redteam-log.md](security/redteam-log.md).

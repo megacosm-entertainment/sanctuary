@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"sentience/internal/sanitize"
+	"sanctuary/internal/sanitize"
 )
 
 // Meta describes where a session came from.
