@@ -31,8 +31,11 @@ type Account struct {
 	// login must choose a new one.
 	MustChangePassword bool `json:"must_change_password,omitempty"`
 
-	TOTP     *TOTPState `json:"totp,omitempty"`
-	Recovery []string   `json:"recovery,omitempty"` // hashes of unused recovery codes
+	TOTP *TOTPState `json:"totp,omitempty"`
+	// TOTPPending is a set-up begun but not yet confirmed with a code. It
+	// does not change how the account logs in.
+	TOTPPending *TOTPPending `json:"totp_pending,omitempty"`
+	Recovery    []string     `json:"recovery,omitempty"` // hashes of unused recovery codes
 
 	Roles []string `json:"roles,omitempty"` // "staff", "admin"
 	// Email is unverified until the notification service exists; it is
@@ -48,6 +51,26 @@ type TOTPState struct {
 	LastStep int64     `json:"last_step"` // last accepted step: no replays
 	Enabled  time.Time `json:"enabled"`
 }
+
+// TOTPPending is an authenticator key shown to the player, kept so they
+// can add it to their app (by key, link or QR code) and confirm it later,
+// in this session or another, with the same key.
+type TOTPPending struct {
+	Sealed  string    `json:"sealed"` // sealed with PendingAD(id)
+	Started time.Time `json:"started"`
+}
+
+// PendingTTL is how long a set-up waits to be confirmed.
+const PendingTTL = 24 * time.Hour
+
+// Live reports whether the pending set-up can still be confirmed at now.
+func (p *TOTPPending) Live(now time.Time) bool {
+	return p != nil && now.Sub(p.Started) < PendingTTL
+}
+
+// PendingAD is the additional data a pending key is sealed with: not the
+// bare id, so a pending key cannot be passed off as a confirmed one.
+func PendingAD(id string) string { return id + "/totp-pending" }
 
 // HasRole reports whether the account has role r.
 func (a *Account) HasRole(r string) bool {

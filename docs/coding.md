@@ -38,7 +38,8 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | WebSocket upgrade, origin check, framing | `websocket.Upgrade`, `websocket.Conn` | `internal/websocket` |
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
 | Hash and check passwords (Argon2id, bounded concurrency, no account enumeration by timing) | `account.Hasher`, `CheckNewPassword` | `internal/account/password.go` |
-| TOTP codes with replay protection; secrets sealed at rest; recovery codes | `account.CheckTOTP`, `TOTPCode`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
+| TOTP codes with replay protection; secrets sealed at rest; recovery codes; spot a key cut short in an app | `account.CheckTOTP`, `TOTPCode`, `TOTPTruncated`, `SecretKey`, `NewRecoveryCodes`, `UseRecoveryCode` | `internal/account/totp.go` |
+| Draw a QR code as terminal text (half blocks for UTF-8, coloured spaces otherwise) | `qrtext.Encode`, `Code.HalfBlocks`, `Code.Spaces` | `internal/qrtext` |
 | Read the account key from a setting (base64 or hex), or create a key file | `account.ParseKey`, `LoadOrCreateKeyFile`, `NewKeyText` | `internal/account/keyfile.go` |
 | Accounts and invites, stored with revision checks and atomic, private files; list them | `account.Store`, `account.FileStore`, `List` | `internal/account` |
 | A temporary password for staff to hand out | `account.NewTemporaryPassword` | `internal/account/password.go` |
@@ -76,6 +77,7 @@ Current dependencies, and why each one is here:
 | --- | --- | --- |
 | `golang.org/x/crypto` (`argon2`) | Password hashing (`internal/account`) | The standard library has no memory-hard password hash; Argon2id is the current recommendation (RFC 9106, OWASP), and writing one would be the kind of cryptography nobody should hand-roll. Maintained by the Go project. |
 | `golang.org/x/sys` | Required by `x/crypto`'s Argon2 for CPU feature detection | Indirect; not used directly. |
+| `rsc.io/qr` | QR codes for authenticator set-up (`internal/qrtext`) | The standard library has no QR encoder, and writing one (Reed-Solomon, masking) is easy to get subtly wrong and hard to test without a decoder. By Russ Cox of the Go team, BSD licence, pure Go with no dependencies of its own (its cgo `libqrencode` subpackage is never imported), small and unchanged for years. |
 
 TOTP is deliberately not a dependency: it is a few lines of RFC 6238 around the standard library's HMAC, and its real pitfalls (replay, constant-time comparison, encryption at rest) are ours to handle either way.
 

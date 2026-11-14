@@ -244,8 +244,16 @@ func TOTPTruncated(secret []byte, code string, now time.Time) (n, of int, ok boo
 	}
 	full := b32.EncodeToString(secret)
 	cur := now.Unix() / int64(totpStep/time.Second)
-	for n := 16; n < len(full); n++ { // shorter keys are under 80 bits: not ours
+	// Longest first: HMAC pads keys with zeros, so a cut key ending in a
+	// zero byte equals a shorter one; report where it was really cut.
+	for n := len(full) - 1; n >= 16; n-- { // shorter keys are under 80 bits: not ours
 		k, err := b32.DecodeString(full[:n])
+		// Only lengths a base32 string can end at (n mod 8 is 0, 2, 4, 5
+		// or 7): the unpadded decoder quietly drops any other tail, so 17
+		// or 22 characters would decode as 16.
+		if r := n % 8; r == 1 || r == 3 || r == 6 {
+			continue
+		}
 		if err != nil {
 			continue // not a length base32 can end at
 		}

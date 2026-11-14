@@ -176,6 +176,8 @@ func state(a *account.Account) string {
 	}
 	if a.TOTP != nil {
 		s = append(s, "2fa")
+	} else if a.TOTPPending != nil {
+		s = append(s, "2fa-pending")
 	}
 	if a.MustChangePassword {
 		s = append(s, "must-change-password")
@@ -236,6 +238,9 @@ func (c *staff) show(args []string) error {
 		fmt.Fprintf(w, "Authenticator:     since %s, %d recovery code(s) left\n", day(a.TOTP.Enabled), len(a.Recovery))
 	} else {
 		fmt.Fprintln(w, "Authenticator:     none")
+		if p := a.TOTPPending; p != nil {
+			fmt.Fprintf(w, "                   (set-up begun %s, not confirmed)\n", day(p.Started))
+		}
 	}
 	fmt.Fprintf(w, "Roles:             %s\n", orNone(strings.Join(a.Roles, ", ")))
 	if a.Email != "" {
@@ -356,7 +361,7 @@ func (c *staff) reset(args []string) error {
 	a, err := c.change(pos[0], func(a *account.Account) error {
 		a.Password, a.PasswordChanged, a.MustChangePassword = hash, time.Now().UTC(), true
 		if totp {
-			a.TOTP, a.Recovery = nil, nil
+			a.TOTP, a.Recovery, a.TOTPPending = nil, nil, nil
 		}
 		return nil
 	})

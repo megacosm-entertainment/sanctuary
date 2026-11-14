@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sanctuary/internal/account"
+	"sanctuary/internal/session"
 	"sanctuary/internal/session/sessiontest"
 )
 
@@ -279,7 +280,7 @@ func TestRetriedSetupKeepsTheKey(t *testing.T) {
 	hiddenPrompt(t, h, "current password")
 	h.Type(goodPassword)
 	intro := prompt(t, h, "6-digit code")
-	contains(t, intro, "same key as last time")
+	contains(t, intro, "Continuing the set-up you began")
 	if again := uriSecret.FindStringSubmatch(intro)[1]; again != first {
 		t.Fatal("a retried set-up showed a different key")
 	}
@@ -307,6 +308,146 @@ func TestTruncatedKeyIsExplained(t *testing.T) {
 	h.Type(account.TOTPCode(short, clk.now()))
 	contains(t, prompt(t, h, "6-digit code"), "only the first 21 of the 32 characters")
 	secret, _ := b32.DecodeString(full)
+	h.Type(account.TOTPCode(secret, clk.now()))
+	contains(t, prompt(t, h, "Realm"), "authenticator is set up")
+}
+
+// setupWith starts a set-up for a client that has described itself as
+// info, and returns the text before the code prompt.
+func setupWith(t *testing.T, f *fixture, info session.ClientInfo) (*sessiontest.Harness, string) {
+	t.Helper()
+	h := f.start()
+	h.Send(session.ClientUpdate{Info: info})
+	inLobby(t, h, "Mara", goodPassword)
+	h.Type("totp")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	return h, prompt(t, h, "6-digit code")
+}
+
+func TestQRCodeOnRequest(t *testing.T) {
+	f := newFixture(t)
+	f.useClock()
+	f.add("Mara", goodPassword)
+	utf8 := session.ClientInfo{Charset: "UTF-8", Width: 100}
+	h, intro := setupWith(t, f, utf8)
+	if strings.ContainsAny(intro, "▀▄█") || strings.Contains(intro, "\x1b[4") {
+		t.Fatal("QR code drawn without being asked for")
+	}
+	contains(t, intro, "'qr'")
+	h.Type("qr")
+	text := prompt(t, h, "6-digit code")
+	if !strings.ContainsAny(text, "▀▄█") {
+		t.Fatalf("no half-block QR code for a UTF-8 client: %q", text)
+	}
+	contains(t, text, "Scan it with your app")
+
+	// Without UTF-8, plain spaces on coloured backgrounds, when it fits.
+	h2, _ := setupWith(t, f, session.ClientInfo{Width: 120})
+	h2.Type("qr")
+	text = prompt(t, h2, "6-digit code")
+	if strings.ContainsAny(text, "▀▄█") || !strings.Contains(text, "\x1b[40m  ") {
+		t.Fatalf("want the ASCII drawing for a client without UTF-8: %q", text)
+	}
+	// Too narrow for it.
+	h3, _ := setupWith(t, f, session.ClientInfo{Width: 60})
+	h3.Type("qr")
+	contains(t, prompt(t, h3, "6-digit code"), "too narrow")
+
+	// A screen reader is told, and can insist.
+	h4, _ := setupWith(t, f, session.ClientInfo{Charset: "UTF-8", HasMTTS: true, MTTS: session.MTTSScreenReader | session.MTTSUTF8, Width: 100})
+	h4.Type("qr")
+	text = prompt(t, h4, "6-digit code")
+	contains(t, text, "screen reader")
+	if strings.ContainsAny(text, "▀▄█") {
+		t.Fatal("QR code drawn for a screen reader")
+	}
+	h4.Type("qr show")
+	if text = prompt(t, h4, "6-digit code"); !strings.ContainsAny(text, "▀▄█") {
+		t.Fatal("qr show did not draw it")
+	}
+}
+
+// A set-up can be left and continued in another session with the same
+// key; it changes nothing about logging in until confirmed.
+func TestPendingSetupAcrossSessions(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h, intro := setupWith(t, f, session.ClientInfo{})
+	key := uriSecret.FindStringSubmatch(intro)[1]
+	h.Type("")
+	contains(t, prompt(t, h, "Realm"), "Set-up paused")
+
+	a, _ := f.store.Get(context.Background(), "Mara")
+	if a.TOTP != nil || a.TOTPPending == nil {
+		t.Fatalf("after pausing: TOTP %v, pending %v; want pending only", a.TOTP, a.TOTPPending)
+	}
+	if strings.Contains(a.TOTPPending.Sealed, key) {
+		t.Fatal("pending key stored unsealed")
+	}
+	// Logging in is unchanged: no code asked for.
+	h2 := f.start()
+	contains(t, login(t, h2, "Mara", goodPassword), "Hello")
+
+	h2.Type("totp")
+	hiddenPrompt(t, h2, "current password")
+	h2.Type(goodPassword)
+	intro = prompt(t, h2, "6-digit code")
+	contains(t, intro, "Continuing the set-up you began")
+	if again := uriSecret.FindStringSubmatch(intro)[1]; again != key {
+		t.Fatal("a new session showed a different key")
+	}
+	secret, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(key)
+	h2.Type(account.TOTPCode(secret, clk.now()))
+	contains(t, prompt(t, h2, "Realm"), "authenticator is set up")
+	if a, _ := f.store.Get(context.Background(), "Mara"); a.TOTP == nil || a.TOTPPending != nil {
+		t.Fatal("confirmed set-up left pending, or not enabled")
+	}
+}
+
+func TestPendingSetupExpiresAndCanBeDiscarded(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h, intro := setupWith(t, f, session.ClientInfo{})
+	first := uriSecret.FindStringSubmatch(intro)[1]
+	h.Type("")
+	prompt(t, h, "Realm")
+
+	// A day later it is gone: a new key.
+	clk.t = clk.t.Add(account.PendingTTL + time.Minute)
+	h.Type("totp")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	intro = prompt(t, h, "6-digit code")
+	if strings.Contains(intro, "Continuing") || uriSecret.FindStringSubmatch(intro)[1] == first {
+		t.Fatal("an expired set-up was continued")
+	}
+	h.Type("")
+	prompt(t, h, "Realm")
+
+	// totp off discards it, with the password alone.
+	h.Type("totp off")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	contains(t, prompt(t, h, "Realm"), "discarded")
+	if a, _ := f.store.Get(context.Background(), "Mara"); a.TOTPPending != nil {
+		t.Fatal("still pending")
+	}
+}
+
+// Asking for the QR code is not a wrong code: it never uses up a try.
+func TestQRDoesNotCountAsAnAttempt(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h, intro := setupWith(t, f, session.ClientInfo{Charset: "UTF-8", Width: 100})
+	for i := 0; i < maxCodeTries+1; i++ {
+		h.Type("qr")
+		prompt(t, h, "6-digit code")
+	}
+	secret, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(uriSecret.FindStringSubmatch(intro)[1])
 	h.Type(account.TOTPCode(secret, clk.now()))
 	contains(t, prompt(t, h, "Realm"), "authenticator is set up")
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"sanctuary/internal/account"
+	"sanctuary/internal/qrtext"
 )
 
 // Account management from the lobby: changing the password, and setting
@@ -21,13 +22,19 @@ const (
 	msgTOTPNone     = "You have no authenticator set up. 'totp' sets one up.\n"
 	msgTOTPIntroFmt = "Add this account to your authenticator app (Google Authenticator, Aegis, 1Password, ...).\n" +
 		"Enter this key by hand, choosing a time-based code of 6 digits:\n  %s\n" +
-		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n"
-	msgTOTPConfirm  = "The 6-digit code your app shows (Enter to cancel): "
-	msgTruncatedFmt = "Your app seems to have only the first %d of the %d characters of the key. Remove it from the app and enter the whole key again; it ends with the last group shown above.\n"
-	msgSameKey      = "This is the same key as last time: if your app already has it, just type its code.\n"
-	msgTOTPOn       = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
-	msgTOTPOff      = "Your authenticator is removed, with its recovery codes.\n"
-	msgCodesFmt     = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
+		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n" +
+		"Type 'qr' at the prompt below to see it as a QR code to scan.\n"
+	msgTOTPConfirm    = "The 6-digit code your app shows ('qr' for a QR code, Enter to stop for now): "
+	msgTruncatedFmt   = "Your app seems to have only the first %d of the %d characters of the key. Remove it from the app and enter the whole key again; it ends with the last group shown above.\n"
+	msgResumeFmt      = "Continuing the set-up you began on %s, with the same key: if your app already has it, just type its code.\n"
+	msgDiscarded      = "The unfinished set-up is discarded; remove its entry from your app if you added it.\n"
+	msgPaused         = "Set-up paused. 'totp' continues it with the same key (for a day); 'totp off' discards it.\n"
+	msgQRAfter        = "Scan it with your app, then type the code it shows.\n"
+	msgQRScreenReader = "Your client reports a screen reader, so the QR code is not drawn: the key above is the same thing. Type 'qr show' to draw it anyway.\n"
+	msgQRTooNarrowFmt = "Your window (%d columns) is too narrow to draw the QR code; widen it and type 'qr' again, or use the key or link above.\n"
+	msgTOTPOn         = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
+	msgTOTPOff        = "Your authenticator is removed, with its recovery codes.\n"
+	msgCodesFmt       = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
 		"Keep them somewhere safe: they are shown only now.\n%s"
 	msgOldCodes   = "Your old recovery codes no longer work.\n"
 	msgRaceTOTP   = "Your authenticator changed in another session; nothing was changed here.\n"
@@ -50,7 +57,14 @@ func (t *turn) manage(a **account.Account, line string) (bool, error) {
 	default:
 		return false, nil
 	}
-	next, err := run(*a)
+	// Read afresh: another session, a staff command or an earlier command
+	// here that stopped part way may have changed it.
+	cur, err := t.h.cfg.Store.Get(t.ctx, (*a).Name)
+	if err != nil {
+		t.trouble("reading account", err) // said so; stay in the lobby
+		return true, nil
+	}
+	next, err := run(cur)
 	switch {
 	case err == nil:
 		*a = next
@@ -139,23 +153,18 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 		t.say(msgTOTPHave)
 		return nil, errFailed
 	}
-	// One key per session until set-up succeeds: retrying after a failed
-	// scan or a wrong code keeps the key the app may already hold.
-	secret := t.pendingTOTP
-	if secret == nil {
-		var err error
-		if secret, err = account.NewTOTPSecret(); err != nil {
-			return nil, t.trouble("making a TOTP secret", err)
-		}
-		t.pendingTOTP = secret
-	} else {
-		t.say(msgSameKey)
+	secret, resumed, err := t.pendingKey(a)
+	if err != nil {
+		return nil, err
+	}
+	if resumed {
+		t.say(fmt.Sprintf(msgResumeFmt, a.TOTPPending.Started.UTC().Format("2006-01-02 15:04 MST")))
 	}
 	t.say(fmt.Sprintf(msgTOTPIntroFmt, account.TOTPDisplay(secret), account.TOTPURI(t.issuer(), a.Name, secret)))
 	var step int64
 	for tries := 0; ; tries++ {
 		if tries == maxCodeTries {
-			t.say(msgCodeTries + "Nothing was changed; type 'totp' to start again.\n")
+			t.say(msgCodeTries + msgPaused)
 			return nil, errFailed
 		}
 		line, err := t.ask(msgTOTPConfirm, false)
@@ -163,8 +172,14 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 			return nil, err
 		}
 		code := strings.TrimSpace(line)
-		if code == "" {
-			return nil, errCancelled
+		switch strings.ToLower(code) {
+		case "":
+			t.say(msgPaused)
+			return nil, errFailed
+		case "qr", "qr show":
+			t.showQR(account.TOTPURI(t.issuer(), a.Name, secret), code != "qr")
+			tries-- // not an attempt
+			continue
 		}
 		var ok bool
 		if step, ok = account.CheckTOTP(secret, code, t.h.cfg.now(), 0); ok {
@@ -188,12 +203,16 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 	if err != nil {
 		return nil, t.trouble("making recovery codes", err)
 	}
+	pending := a.TOTPPending.Sealed
 	next, err := t.modify(a, func(a *account.Account) error {
-		if a.TOTP != nil {
+		// Confirm only the key that was shown: another session may have
+		// replaced or confirmed it since.
+		if a.TOTP != nil || a.TOTPPending == nil || a.TOTPPending.Sealed != pending {
 			return errReplay
 		}
 		a.TOTP = &account.TOTPState{Sealed: sealed, LastStep: step, Enabled: t.h.cfg.now().UTC()}
 		a.Recovery = stored
+		a.TOTPPending = nil
 		return nil
 	})
 	if errors.Is(err, errReplay) {
@@ -203,11 +222,77 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 	if err != nil {
 		return nil, t.trouble("enrolling TOTP", err)
 	}
-	t.pendingTOTP = nil
 	t.s.Log().Info("authenticator set up", "account", a.Name)
 	t.say(msgTOTPOn)
 	t.say(fmt.Sprintf(msgCodesFmt, codeList(shown)))
 	return next, nil
+}
+
+// pendingKey returns the set-up key: the pending one when there is a live
+// one (the app may already hold it), else a new one, stored as pending
+// before it is shown. a is updated to what was stored.
+func (t *turn) pendingKey(a *account.Account) ([]byte, bool, error) {
+	now := t.h.cfg.now()
+	if p := a.TOTPPending; p.Live(now) {
+		secret, err := t.h.cfg.Key.Open(p.Sealed, account.PendingAD(a.ID))
+		if err == nil {
+			return secret, true, nil
+		}
+		t.s.Log().Warn("pending TOTP key does not open; starting a new set-up", "account", a.Name, "err", err)
+	}
+	secret, err := account.NewTOTPSecret()
+	if err != nil {
+		return nil, false, t.trouble("making a TOTP secret", err)
+	}
+	sealed, err := t.h.cfg.Key.Seal(secret, account.PendingAD(a.ID))
+	if err != nil {
+		return nil, false, t.trouble("sealing a TOTP secret", err)
+	}
+	next, err := t.modify(a, func(a *account.Account) error {
+		if a.TOTP != nil {
+			return errReplay
+		}
+		a.TOTPPending = &account.TOTPPending{Sealed: sealed, Started: now.UTC()}
+		return nil
+	})
+	if errors.Is(err, errReplay) {
+		t.say(msgTOTPHave)
+		return nil, false, errFailed
+	}
+	if err != nil {
+		return nil, false, t.trouble("starting TOTP set-up", err)
+	}
+	*a = *next
+	return secret, false, nil
+}
+
+// showQR draws uri as a QR code, as the client can show it: half blocks
+// for UTF-8, coloured spaces otherwise when the window is wide enough.
+// A screen reader gets an explanation unless the player insists (anyway).
+func (t *turn) showQR(uri string, anyway bool) {
+	c := t.s.Client()
+	if c.ScreenReader() && !anyway {
+		t.say(msgQRScreenReader)
+		return
+	}
+	code, err := qrtext.Encode(uri)
+	if err != nil {
+		t.s.Log().Error("encoding a QR code", "err", err)
+		t.say(msgTrouble)
+		return
+	}
+	width := c.Width
+	if width == 0 {
+		width = 80 // not reported: assume the classic terminal
+	}
+	switch {
+	case c.UTF8() && code.HalfBlocksWidth() <= width:
+		t.say(code.HalfBlocks() + msgQRAfter)
+	case code.SpacesWidth() <= width:
+		t.say(code.Spaces() + msgQRAfter)
+	default:
+		t.say(fmt.Sprintf(msgQRTooNarrowFmt, width))
+	}
 }
 
 func codeList(codes []string) string {
@@ -219,6 +304,9 @@ func codeList(codes []string) string {
 }
 
 func (t *turn) removeTOTP(a *account.Account) (*account.Account, error) {
+	if a.TOTP == nil && a.TOTPPending != nil {
+		return t.discardPending(a)
+	}
 	if a.TOTP == nil {
 		t.say(msgTOTPNone)
 		return nil, errFailed
@@ -279,4 +367,22 @@ func digitsHint(code string) (string, bool) {
 	}
 	return fmt.Sprintf("Codes have %d digits; that one has %d. If your app shows %d, set the account's code length to %d in the app.\n",
 		account.TOTPDigits, len(c), len(c), account.TOTPDigits), true
+}
+
+// discardPending drops a set-up that was never confirmed. Nothing about
+// logging in changes, so the password is enough.
+func (t *turn) discardPending(a *account.Account) (*account.Account, error) {
+	a, err := t.reauth(a.Name)
+	if err != nil {
+		return nil, err
+	}
+	next, err := t.modify(a, func(a *account.Account) error {
+		a.TOTPPending = nil
+		return nil
+	})
+	if err != nil {
+		return nil, t.trouble("discarding TOTP set-up", err)
+	}
+	t.say(msgDiscarded)
+	return next, nil
 }

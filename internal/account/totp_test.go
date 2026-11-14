@@ -183,3 +183,23 @@ func TestTOTPTruncated(t *testing.T) {
 		t.Error("000000 reported as truncated")
 	}
 }
+
+// HMAC pads keys with zeros, so a cut key ending in a zero byte is the same
+// key as one a character shorter: report the longer, where it was cut.
+// And the unpadded decoder reads 17 or 22 characters as 16: never report
+// a length that cannot end a base32 string.
+func TestTOTPTruncatedEdges(t *testing.T) {
+	secret := []byte("123456789012\x0045678")
+	full := b32.EncodeToString(secret)
+	now := time.Unix(1_700_000_000, 0)
+	short, _ := b32.DecodeString(full[:21]) // 13 bytes, the last zero
+	if n, _, ok := TOTPTruncated(secret, TOTPCode(short, now), now); !ok || n != 21 {
+		t.Fatalf("cut at 21 (zero last byte) reported as %d, %v", n, ok)
+	}
+	plain := []byte("12345678901234567890")
+	f2 := b32.EncodeToString(plain)
+	k16, _ := b32.DecodeString(f2[:16])
+	if n, _, ok := TOTPTruncated(plain, TOTPCode(k16, now), now); !ok || n != 16 {
+		t.Fatalf("cut at 16 reported as %d, %v (17 and 22 decode the same and must be skipped)", n, ok)
+	}
+}
