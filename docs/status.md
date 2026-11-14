@@ -77,7 +77,9 @@ Remaining:
    says which a client gets.
 3. Done: settings from flags, environment and env files (`internal/config`),
    secrets kept out of files; the runtime image (`docker/runtime`) and
-   `compose.yaml` (see `deploy/README.md`).
+   `compose.yaml` (see `deploy/README.md`). Verified on Fedora with Podman and
+   Compose v2: `scripts/compose.sh -doppler stg` builds the image, runs both
+   containers from Doppler, and serves MUSHclient through the realm.
 
 From design §13: a versioned message schema against a transport interface
 (socket and in-memory), a world server that accepts sessions and reflects
@@ -104,7 +106,7 @@ Decided for this stage, beyond the design document:
 | Item | When |
 | --- | --- |
 | Idle timeout (RT-1-A1, accepted for now) | Stage 03, with the lobby and accounts |
-| Build and run `compose.yaml` and `docker/runtime` with Docker; written but not yet run (no Docker in the devcontainer) | Next time on a machine with Docker or Podman |
+| Rootless Podman's default port forwarding (rootlessport) hides players' addresses: every connection appears to come from the Podman network, so `MAX_PER_HOST` would cap the whole server and logs cannot tell players apart. Use pasta networking or a proxy that preserves the client address | Before real players connect |
 | Remove the deploy-key line from the legacy image | When that image is next rebuilt |
 | Decisions still open in design §14: scene presentation, combat timing, remote replay, script migration | Before the stages they block |
 
