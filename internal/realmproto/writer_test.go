@@ -265,3 +265,49 @@ func TestOversizeMessageRefusedNotFatal(t *testing.T) {
 		t.Fatalf("after an oversize message the peer got %+v, %v; want the pong", m, err)
 	}
 }
+
+// CloseWithin bounds the whole flush: a peer that is not reading cannot
+// hold a shutdown past it (red team round 3).
+func TestCloseWithinBoundsTheFlush(t *testing.T) {
+	gw, realm := realmproto.Pipe()
+	t.Cleanup(func() { gw.Close(); realm.Close() })
+	w := realmproto.NewWriter(realm, realmproto.WriterLimits{WriteTimeout: time.Minute})
+	for i := uint64(1); i <= 5; i++ {
+		if err := w.Send(&realmproto.Pong{N: i}); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+	}
+	start := time.Now()
+	if w.CloseWithin(100 * time.Millisecond) {
+		t.Fatal("CloseWithin reported a full flush to a peer that read nothing")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("CloseWithin took %v with a 100ms bound (the per-frame timeout is a minute)", d)
+	}
+	if !errors.Is(w.Err(), realmproto.ErrFlushTimeout) {
+		t.Fatalf("Err = %v, want ErrFlushTimeout", w.Err())
+	}
+}
+
+func TestCloseWithinFlushesWhenPossible(t *testing.T) {
+	gw, realm := realmproto.Pipe()
+	t.Cleanup(func() { gw.Close(); realm.Close() })
+	w := realmproto.NewWriter(realm, realmproto.WriterLimits{})
+	if err := w.Send(&realmproto.Pong{N: 1}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	got := make(chan uint64, 1)
+	go func() {
+		if m, err := gw.Recv(); err == nil {
+			if p, ok := m.(*realmproto.Pong); ok {
+				got <- p.N
+			}
+		}
+	}()
+	if !w.CloseWithin(timeout) {
+		t.Fatalf("CloseWithin = false with a reading peer (Err %v)", w.Err())
+	}
+	if n := <-got; n != 1 {
+		t.Fatalf("flushed pong %d, want 1", n)
+	}
+}

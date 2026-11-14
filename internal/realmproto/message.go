@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"sanctuary/internal/gmcp"
@@ -412,6 +413,9 @@ func Decode(payload []byte, from Sender) (Message, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return nil, ErrNotObject
 	}
+	if err := checkKeys(payload); err != nil {
+		return nil, err
+	}
 	var env struct {
 		Type *string `json:"type"`
 	}
@@ -687,6 +691,49 @@ func (m *Unknown) validate() error  { return nil }
 func (m *Drain) validate() error {
 	if m.DeadlineMS < 1 || m.DeadlineMS > maxDrainMS {
 		return fieldErr("drain", "deadline_ms", "must be 1.."+fmt.Sprint(maxDrainMS))
+	}
+	return nil
+}
+
+// ErrKeySpelling: a field name is repeated, or not lowercase.
+var ErrKeySpelling = errors.New("realmproto: field name repeated or not lowercase")
+
+// checkKeys enforces protocol.md §2's spelling rule on the message object
+// and on the protocol's own nested objects (meta, client): every field
+// name is lowercase and appears once. encoding/json would otherwise match
+// "TYPE" to type and keep the last of two "type"s, so a frame could mean
+// one thing here and another to a realm written in another language.
+// GMCP data is the player's own JSON and is not checked.
+func checkKeys(payload []byte) error { return checkObject(payload, true) }
+
+func checkObject(obj []byte, top bool) error {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return fmt.Errorf("%w: %v", ErrNotObject, err)
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrNotObject, err)
+		}
+		key, _ := tok.(string)
+		if seen[key] || key != strings.ToLower(key) {
+			return fmt.Errorf("%w: %q", ErrKeySpelling, key)
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return fmt.Errorf("%w: %v", ErrNotObject, err)
+		}
+		if top && (key == "meta" || key == "client") && len(value) > 0 && value[0] == '{' {
+			if err := checkObject(value, false); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return fmt.Errorf("%w: %v", ErrNotObject, err)
 	}
 	return nil
 }

@@ -76,3 +76,16 @@ Scope: everything since round 2 (1c3784d), attacked on the 466af6e tree in a cop
 - `encoding/json` matches keys case-insensitively and takes the last duplicate (`{"type":"text","TYPE":"hello"}` decodes as hello). Sender rules still apply, so no exploit, but a realm in another language could read the same frame differently.
 
 Round 3 fixes were checked by mutation: 20 of 21 mutants of the fixed code and of the previously surviving load-bearing behaviour are caught. The survivor turns the dropped-input warning into a debug line; after RT-3-2 no transport can produce such input, so the warning is defence in depth only. The red team's own RT-3-1 exploit test now fails at its first step (the impostor's hello is rejected `not-allowed`), and its live RT-3-2 reproduction echoes the long line.
+
+### Round 3 suspects, resolved (2026-11-14)
+
+Each was turned into a test first; two were real.
+
+| Suspect | Result | Test | Fix |
+| --- | --- | --- | --- |
+| Held player loops attach, fail, hold while a failing realm is still registered | **Confirmed, and severe**: 35,814 hold messages to one player in 250 ms | `TestFailingRealmDoesNotSpinHeldPlayers` (in-package) | The hub no longer hands out a realm whose link has stopped; players wait for its removal or a replacement |
+| Gateway shutdown has no overall deadline | **Confirmed**: a realm that stops reading held shutdown for a full write timeout per queued frame | `TestShutdownBoundedWithStuckRealm`, `TestCloseWithinBoundsTheFlush` | `Writer.CloseWithin`: the final flush has 5 s in all (`HubConfig.ShutdownFlush`); a realm's drain flush is bounded by what is left of its drain deadline |
+| Hidden input not undone when a realm goes mid-prompt | Real (presentation): a held player would type with echo off | `TestHiddenInputUndoneWhenRealmGoes`, `TestEchoNotRestoredTwice` | The gateway tracks the realm's last input mode and restores echo before holding the player |
+| `encoding/json` key case and duplicates | No exploit, but a cross-language ambiguity | `TestDecodeRejects` (5 new cases), `TestGMCPDataKeysNotChecked` | Field names must be lowercase and unique in the message, `meta` and `client` (protocol.md §2); GMCP data is not checked |
+
+All 9 mutants of these fixes are caught.

@@ -145,6 +145,34 @@ func (w *Writer) Close() {
 	<-w.done
 }
 
+// ErrFlushTimeout: CloseWithin gave up on writing what was queued.
+var ErrFlushTimeout = errors.New("realmproto: flush did not finish in time; link closed")
+
+// CloseWithin is Close with a bound on the whole flush, not just on each
+// frame: whatever is not written within d is abandoned and the link is
+// closed. Shutdown uses it, so a peer that reads slowly but steadily
+// cannot hold a process open (red team round 3). It reports whether
+// everything was written.
+func (w *Writer) CloseWithin(d time.Duration) bool {
+	w.mu.Lock()
+	w.closing = true
+	w.mu.Unlock()
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-w.done:
+		return w.Err() == nil
+	case <-t.C:
+		w.fail(ErrFlushTimeout)
+		<-w.done
+		return false
+	}
+}
+
 // Done is closed when the writer stops.
 func (w *Writer) Done() <-chan struct{} { return w.done }
 

@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sanctuary/internal/realmproto"
@@ -31,7 +32,11 @@ type HubConfig struct {
 	HandshakeTimeout time.Duration // hello must arrive within this; default 5s (protocol.md §4)
 	Writer           realmproto.WriterLimits
 	Keepalive        realmproto.Keepalive // per link; zero fields take the defaults
-	Log              *slog.Logger
+	// ShutdownFlush bounds the final flush to each realm on gateway
+	// shutdown; default 5s. A realm that reads slowly cannot hold the
+	// gateway open past it.
+	ShutdownFlush time.Duration
+	Log           *slog.Logger
 }
 
 // Hub holds the registered realms.
@@ -54,6 +59,9 @@ func NewHub(cfg HubConfig) *Hub {
 	}
 	if cfg.HandshakeTimeout == 0 {
 		cfg.HandshakeTimeout = 5 * time.Second
+	}
+	if cfg.ShutdownFlush == 0 {
+		cfg.ShutdownFlush = 5 * time.Second
 	}
 	return &Hub{cfg: cfg, log: cfg.Log, realms: map[string]*Realm{}, changed: make(chan struct{})}
 }
@@ -92,7 +100,7 @@ func (h *Hub) pick(ctx context.Context, id string) (*Realm, error) {
 		}
 		changed := h.changed
 		h.mu.Unlock()
-		if r != nil && !r.draining() {
+		if r != nil && !r.draining() && !r.failing() {
 			return r, nil
 		}
 		select {
@@ -154,14 +162,14 @@ func (h *Hub) ServeAs(ctx context.Context, c *realmproto.Conn, allowed func(id s
 	// shutdown, flush, then close the link (protocol.md §8).
 	stopShutdown := context.AfterFunc(ctx, func() {
 		w.Send(&realmproto.Shutdown{})
-		w.Close()
+		w.CloseWithin(h.cfg.ShutdownFlush)
 		c.Close()
 	})
 	defer stopShutdown()
 	if ctx.Err() != nil { // cancelled between the handshake and here
 		stopShutdown()
 		w.Send(&realmproto.Shutdown{})
-		w.Close()
+		w.CloseWithin(h.cfg.ShutdownFlush)
 		c.Close()
 	}
 
@@ -264,7 +272,23 @@ type attached struct {
 	s           *session.Session
 	realmClosed chan struct{} // the realm sent session.close
 	closeReason string        // its reason; set before realmClosed is closed
+	hidden      atomic.Bool   // the realm last asked for hidden input
 	once        sync.Once
+}
+
+// failing reports whether the realm's link has stopped (its writer failed,
+// or the link ended) while the hub has not removed it yet. Handing such a
+// realm to a player would fail at once, and a held player would go round
+// attach, fail, hold as fast as the CPU allows (red team round 3).
+func (r *Realm) failing() bool {
+	select {
+	case <-r.w.Done():
+		return true
+	case <-r.gone:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Realm) draining() bool {
@@ -308,6 +332,7 @@ func (r *Realm) run() error {
 			}
 		case *realmproto.InputMode:
 			if a := r.session(v.Session); a != nil {
+				a.hidden.Store(v.Hidden)
 				a.s.Send(session.InputMode{Hidden: v.Hidden})
 			}
 		case *realmproto.SessionClose:

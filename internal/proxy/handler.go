@@ -173,12 +173,14 @@ func (h Handler) relay(ctx context.Context, s *session.Session, in *input, r *Re
 			return ended
 		case <-a.realmClosed:
 			if a.closeReason == realmproto.ClosedDrain {
+				restoreEcho(s, a)
 				leave("", "realm draining")
 				return lost
 			}
 			leave("", "realm ended the session")
 			return ended
 		case <-r.Gone():
+			restoreEcho(s, a)
 			leave("", "realm link lost")
 			return lost
 		case <-in.done:
@@ -210,6 +212,7 @@ func (h Handler) relay(ctx context.Context, s *session.Session, in *input, r *Re
 				return ended
 			default:
 				// The realm's link is failing; this player noticed first.
+				restoreEcho(s, a)
 				leave("", "realm link failing")
 				return lost
 			}
@@ -247,4 +250,13 @@ func spoken(d time.Duration) string {
 		s = 1
 	}
 	return unit(s, "second")
+}
+
+// restoreEcho turns local echo back on if the realm that is going away had
+// turned it off (a password prompt) and never turned it back on. A held
+// player would otherwise type blind, and the next realm would inherit it.
+func restoreEcho(s *session.Session, a *attached) {
+	if a.hidden.Load() {
+		s.Send(session.InputMode{Hidden: false})
+	}
 }

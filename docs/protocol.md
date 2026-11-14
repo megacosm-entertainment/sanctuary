@@ -45,6 +45,11 @@ bytes   payload   one JSON object, UTF-8
   have `session`, an integer from 1 to 2^53-1 chosen by the gateway (§5);
   the upper bound is the largest integer every JSON implementation reads
   exactly.
+- Field names are lowercase and appear once, in the message object and in
+  `meta` and `client`. A repeated or non-lowercase name is a protocol
+  error: parsers disagree about `{"type":"text","TYPE":"hello"}` and about
+  duplicates, so no frame may depend on which way they go. GMCP `data` is
+  the player's own JSON and is relayed as it is.
 - Unknown fields are ignored. An unknown `type` is ignored and counted, so a
   newer peer can add optional messages without a version bump. Anything a
   peer must understand needs a new protocol version.
@@ -224,7 +229,10 @@ not forwarded, and `IPADDRESS` never is.
   together do not reconnect in step.
 - **Gateway shutdown.** The gateway sends `{"type": "shutdown"}`, then
   `session.closed` (reason `shutdown`) for each session after its output is
-  flushed, then closes the link.
+  flushed, then closes the link. The final flush has at most 5 seconds in
+  all, so a realm that reads slowly cannot hold the gateway open; the
+  realm's own drain flush is likewise bounded by what is left of its drain
+  deadline.
 - **Realm drain** (design §04, "Graceful shutdown"). On SIGTERM the realm
   sends `{"type": "drain", "deadline_ms": N}`, routes no new players (one
   that arrives anyway is handed straight back), tells its players, saves,

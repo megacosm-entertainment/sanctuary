@@ -203,6 +203,13 @@ func TestDecodeRejects(t *testing.T) {
 		{"meta bad voice", realmproto.FromRealm, `{"type":"text","session":1,"text":"x","meta":{"voice":"loud"}}`, realmproto.ErrInvalidField},
 		// Scene ids may reach GMCP and logs, so no quotes or spaces.
 		{"meta scene with quote", realmproto.FromRealm, `{"type":"text","session":1,"text":"x","meta":{"scene":"a\"b"}}`, realmproto.ErrInvalidField},
+		// protocol.md §2: names are lowercase and appear once. encoding/json
+		// alone would read the first as hello and the second as the last type.
+		{"type in capitals", realmproto.FromRealm, `{"type":"text","TYPE":"hello","session":1,"text":"x"}`, realmproto.ErrKeySpelling},
+		{"type twice", realmproto.FromRealm, `{"type":"text","type":"drained","session":1,"text":"x"}`, realmproto.ErrKeySpelling},
+		{"session in mixed case", realmproto.FromRealm, `{"type":"prompt","Session":1}`, realmproto.ErrKeySpelling},
+		{"meta key repeated", realmproto.FromRealm, `{"type":"text","session":1,"text":"x","meta":{"kind":"pose","kind":"system"}}`, realmproto.ErrKeySpelling},
+		{"client key in capitals", realmproto.FromGateway, `{"type":"client","session":1,"client":{"Width":80}}`, realmproto.ErrKeySpelling},
 		{"meta kind uppercase", realmproto.FromRealm, `{"type":"text","session":1,"text":"x","meta":{"kind":"POSE"}}`, realmproto.ErrInvalidField},
 		{"drain without deadline", realmproto.FromRealm, `{"type":"drain"}`, realmproto.ErrInvalidField},
 		{"window wider than NAWS allows", realmproto.FromGateway, `{"type":"client","session":1,"client":{"width":70000}}`, realmproto.ErrInvalidField},
@@ -383,5 +390,17 @@ func TestToSessionInvertsClientFrom(t *testing.T) {
 	}
 	if none := (realmproto.ClientInfo{Name: "x"}).ToSession(); none.HasMTTS {
 		t.Fatalf("ToSession(no mtts).HasMTTS = true, want false")
+	}
+}
+
+// The spelling rule stops at GMCP data: that is the player's own JSON,
+// relayed as is (protocol.md §2).
+func TestGMCPDataKeysNotChecked(t *testing.T) {
+	m, err := realmproto.Decode([]byte(`{"type":"gmcp","session":1,"package":"Char.Vitals","data":{"HP":1,"HP":2}}`), realmproto.FromRealm)
+	if err != nil {
+		t.Fatalf("Decode(GMCP with its own odd keys) = %v, want it relayed", err)
+	}
+	if g, ok := m.(*realmproto.GMCP); !ok || string(g.Data) != `{"HP":1,"HP":2}` {
+		t.Fatalf("Decode = %+v, want the data unchanged", m)
 	}
 }

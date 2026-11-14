@@ -415,6 +415,7 @@ func (p *player) Close() error {
 // send drained and close the link, all within DrainTimeout.
 func (l *link) drain(stopHandlers context.CancelFunc) {
 	deadline := l.cfg.DrainTimeout
+	started := time.Now()
 	// Wait on the player table, not the handler WaitGroup: the table is
 	// updated under l.mu, so a player opened just before the drain is
 	// counted, and nothing calls Add while this waits.
@@ -447,7 +448,14 @@ func (l *link) drain(stopHandlers context.CancelFunc) {
 		}
 	}
 	l.w.Send(&realmproto.Drained{})
-	l.w.Close() // flush every goodbye and session.close, then the link goes
+	// Flush every goodbye and session.close, within what is left of the
+	// deadline (at least a second), so the whole drain stays inside the
+	// grace an orchestrator allows; then the link goes.
+	left := deadline - time.Since(started)
+	if left < time.Second {
+		left = time.Second
+	}
+	l.w.CloseWithin(left)
 	l.conn.Close()
 	l.log.Info("drained")
 }

@@ -605,3 +605,75 @@ func TestCloseReasonOverflow(t *testing.T) {
 	}
 	p.ExpectClosed()
 }
+
+// A realm lost or drained at a password prompt must not leave the held
+// player typing with echo off.
+func TestHiddenInputUndoneWhenRealmGoes(t *testing.T) {
+	for _, how := range []string{"lost", "drained"} {
+		t.Run(how, func(t *testing.T) {
+			h := newHub(t, proxy.HubConfig{})
+			realm := h.register(t, "live")
+			p, open := player(t, h, realm, proxy.Handler{Hold: rpt.Timeout})
+			realm.Send(&realmproto.InputMode{Session: open.Session, Hidden: true})
+			if m := sessiontest.ExpectNext[session.InputMode](p); !m.Hidden {
+				t.Fatalf("setup: got %+v, want hidden", m)
+			}
+			if how == "lost" {
+				realm.Conn.Close()
+			} else {
+				realm.Send(&realmproto.SessionClose{Session: open.Session, Reason: realmproto.ClosedDrain})
+			}
+			if m := sessiontest.ExpectNext[session.InputMode](p); m.Hidden {
+				t.Fatalf("after the realm %s: %+v, want echo restored first", how, m)
+			}
+			p.ExpectText("unavailable for the moment")
+		})
+	}
+}
+
+// Echo already restored by the realm is not toggled again.
+func TestEchoNotRestoredTwice(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{})
+	realm := h.register(t, "live")
+	p, open := player(t, h, realm, proxy.Handler{Hold: rpt.Timeout})
+	realm.Send(&realmproto.InputMode{Session: open.Session, Hidden: true})
+	realm.Send(&realmproto.InputMode{Session: open.Session, Hidden: false})
+	sessiontest.ExpectNext[session.InputMode](p)
+	sessiontest.ExpectNext[session.InputMode](p)
+	realm.Conn.Close()
+	if txt := sessiontest.ExpectNext[session.Text](p); !strings.Contains(txt.Text, "unavailable for the moment") {
+		t.Fatalf("after the realm went: %+v, want the hold message and no extra input mode", txt)
+	}
+}
+
+// Gateway shutdown is bounded even when a realm has stopped reading: the
+// final flush is given ShutdownFlush, not one write timeout per queued
+// frame (red team round 3).
+func TestShutdownBoundedWithStuckRealm(t *testing.T) {
+	h := newHub(t, proxy.HubConfig{
+		ShutdownFlush: 100 * time.Millisecond,
+		Writer:        realmproto.WriterLimits{WriteTimeout: time.Minute},
+	})
+	gw, realm := realmproto.Pipe()
+	t.Cleanup(func() { gw.Close(); realm.Close() })
+	done := make(chan error, 1)
+	go func() { done <- h.Serve(h.ctx, gw) }()
+	if err := realm.Send(&realmproto.Hello{Versions: []int{realmproto.Version}, Realm: "deaf"}); err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+	if _, err := realm.Recv(); err != nil {
+		t.Fatalf("welcome: %v", err)
+	}
+	// From here the realm reads nothing, so the shutdown message cannot be
+	// written and only the flush bound can end Serve.
+	start := time.Now()
+	h.cancel()
+	select {
+	case <-done:
+	case <-time.After(rpt.Timeout):
+		t.Fatal("gateway shutdown hung on a realm that stopped reading")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("shutdown took %v with a 100ms flush bound", d)
+	}
+}
