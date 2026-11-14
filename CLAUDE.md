@@ -1,6 +1,6 @@
 # Sanctuary
 
-Go module `sanctuary` (Go 1.27.4 floor, see `go.mod`): a MUD engine built for roleplay and worldbuilding. Stage 01 is a gateway (telnet, telnet+TLS, WebSocket) normalised into sessions, currently served by an echo handler. The architecture and its reasoning are in the design document; the build order is its §13.
+Go module `sanctuary` (Go 1.27.4 floor, see `go.mod`): a MUD engine built for roleplay and worldbuilding. Stage 01 is a gateway (telnet, telnet+TLS, WebSocket) normalised into sessions, currently served by an echo handler. The architecture and its reasoning are in the [design document](https://claude.ai/artifact/HR5zEGTd1DLFAvm821NzNV); the build order is its §13. **Start with [docs/status.md](docs/status.md)**: what is done, what is next, and open items.
 
 ## Before writing code
 
