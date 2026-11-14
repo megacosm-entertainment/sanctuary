@@ -21,6 +21,12 @@ const (
 type qside struct {
 	state    qstate
 	opposite bool // queue bit: EMPTY when false, OPPOSITE when true
+	// lateAcks counts our disables not yet acknowledged. A disable cannot
+	// be refused (RFC 854), so we treat it as done when we send it rather
+	// than waiting in WANTNO: some clients (TinTin++ 2.02) never answer
+	// WONT ECHO, and waiting would hold back every later WILL ECHO, so
+	// passwords would be shown. A late acknowledgement is swallowed.
+	lateAcks int
 }
 
 type qoption struct {
@@ -84,12 +90,17 @@ func (m *qmachine) recvEnable(s *qside, opt byte, us bool, yes, no byte) {
 			m.changed(opt, us, true)
 		}
 	case qWantYes:
+		// Replies come in order: an answer to our enable means no
+		// acknowledgement of an earlier disable is still on its way.
+		s.lateAcks = 0
 		if !s.opposite {
 			s.state = qYes
 			m.changed(opt, us, true)
 		} else {
-			s.state = qWantNo
+			// We changed our mind while asking: disable at once, as in ask.
+			s.state = qNo
 			s.opposite = false
+			s.lateAcks++
 			m.send(no, opt)
 		}
 	}
@@ -97,6 +108,13 @@ func (m *qmachine) recvEnable(s *qside, opt byte, us bool, yes, no byte) {
 
 // recvDisable handles WONT (for him) or DONT (for us).
 func (m *qmachine) recvDisable(s *qside, opt byte, us bool, yes, no byte) {
+	if s.lateAcks > 0 && (s.state == qNo || s.state == qWantYes) {
+		// The acknowledgement of a disable we already treated as done
+		// (replies come in order, so it precedes any answer to a later
+		// enable). Not a refusal.
+		s.lateAcks--
+		return
+	}
 	switch s.state {
 	case qNo:
 		// Already disabled; ignore.
@@ -147,9 +165,11 @@ func (m *qmachine) ask(s *qside, opt byte, us, enable bool, yes, no byte) {
 	}
 	switch s.state {
 	case qYes:
-		s.state = qWantNo
-		// Treat the option as off from now: stop using it before asking,
-		// which RFC 1143 allows and which MCCP2 needs.
+		// Off from now (a disable cannot be refused): stop using it before
+		// saying so, which MCCP2 needs, and expect an acknowledgement that
+		// may never come (see lateAcks).
+		s.state = qNo
+		s.lateAcks++
 		m.changed(opt, us, false)
 		m.send(no, opt)
 	case qWantNo:

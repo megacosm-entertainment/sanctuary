@@ -988,3 +988,61 @@ func TestFlushDuringCloseKeepsShortDeadline(t *testing.T) {
 		t.Fatalf("flush set a deadline %v ahead while closing, want at most %v", d, closeGrace)
 	}
 }
+
+// Hidden input must work again and again, whether or not the client
+// acknowledges WONT ECHO. TinTin++ 2.02 never does; waiting for it held
+// back every later WILL ECHO, so from the second password prompt on its
+// passwords were shown.
+func TestEchoTogglesWithoutAcknowledgements(t *testing.T) {
+	t.Run("client never acknowledges WONT (TinTin++)", func(t *testing.T) {
+		c, f := newTestConn(t)
+		for i := 0; i < 3; i++ {
+			write(t, c, session.InputMode{Hidden: true})
+			wantSent(t, f, cmd(WILL, OptEcho))
+			feed(c, cmd(DO, OptEcho)...)
+			wantSent(t, f, nil)
+			write(t, c, session.InputMode{Hidden: false})
+			wantSent(t, f, cmd(WONT, OptEcho))
+			// no DONT
+		}
+	})
+	t.Run("hide straight after unhide, acknowledgement late (MUSHclient)", func(t *testing.T) {
+		c, f := newTestConn(t)
+		write(t, c, session.InputMode{Hidden: true})
+		feed(c, cmd(DO, OptEcho)...)
+		f.takeSent()
+		// New password, then "again": unhide and hide back to back, before
+		// the client has answered the WONT.
+		write(t, c, session.InputMode{Hidden: false})
+		write(t, c, session.InputMode{Hidden: true})
+		wantSent(t, f, append(cmd(WONT, OptEcho), cmd(WILL, OptEcho)...))
+		// The DONT that arrives is the WONT's acknowledgement, not a refusal.
+		feed(c, cmd(DONT, OptEcho)...)
+		wantSent(t, f, nil)
+		feed(c, cmd(DO, OptEcho)...)
+		wantSent(t, f, nil)
+		if opts := strings.Join(clientInfo(c).Options, ","); !strings.Contains(opts, "ECHO") {
+			t.Fatalf("ECHO not on after the late acknowledgement; options %s", opts)
+		}
+	})
+	t.Run("change of mind while asking, then hide again (no acknowledgement)", func(t *testing.T) {
+		c, f := newTestConn(t)
+		write(t, c, session.InputMode{Hidden: true})
+		write(t, c, session.InputMode{Hidden: false}) // queued
+		wantSent(t, f, cmd(WILL, OptEcho))
+		feed(c, cmd(DO, OptEcho)...)
+		wantSent(t, f, cmd(WONT, OptEcho))
+		write(t, c, session.InputMode{Hidden: true})
+		wantSent(t, f, cmd(WILL, OptEcho))
+	})
+	t.Run("a real refusal is still a refusal", func(t *testing.T) {
+		c, f := newTestConn(t)
+		write(t, c, session.InputMode{Hidden: true})
+		f.takeSent()
+		feed(c, cmd(DONT, OptEcho)...)
+		wantSent(t, f, nil)
+		if opts := strings.Join(clientInfo(c).Options, ","); strings.Contains(opts, "ECHO") {
+			t.Fatal("ECHO on after the client refused it")
+		}
+	})
+}
