@@ -141,19 +141,6 @@ func ClientTLS(identity tls.Certificate, gateway Trust, serverName string) (*tls
 	}, nil
 }
 
-// LoadCAs reads a PEM bundle of CA certificates.
-func LoadCAs(file string) (*x509.CertPool, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(b) {
-		return nil, fmt.Errorf("realmproto: no certificates in %s", file)
-	}
-	return pool, nil
-}
-
 // identityLifetime is long because a pinned identity is replaced by
 // generating a new key and updating the pin, not by expiry. CA-issued
 // certificates have whatever lifetime their issuer gives them.

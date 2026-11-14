@@ -2,40 +2,44 @@
 // gateway's realm port over mTLS (docs/protocol.md §3), registers, serves
 // the players the gateway routes to it, and reconnects with backoff when
 // the link drops. In stage 02 the realm is the stub (the echo handler).
+//
+// Every setting can come from a flag, an environment variable or an
+// env-format config file (see internal/config): -gateway is
+// SANCTUARY_GATEWAY. Run with -help for the list.
 package main
 
 import (
 	"context"
-	"crypto/tls"
-	"flag"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
+	"sanctuary/internal/cli"
+	"sanctuary/internal/config"
 	"sanctuary/internal/realm"
 	"sanctuary/internal/realmproto"
 )
 
 func main() {
+	s := config.New("sanctuary-realm")
 	var (
-		gateway     = flag.String("gateway", "127.0.0.1:9030", "gateway realm port to dial")
-		serverName  = flag.String("gateway-name", "", "gateway name to check in CA mode (default: the host in -gateway)")
-		gatewayPins = flag.String("gateway-pins", "", "comma-separated gateway pins (sha256/...) or files of pins")
-		gatewayCA   = flag.String("gateway-ca", "", "PEM bundle of CAs that may issue the gateway's certificate")
-		certFile    = flag.String("cert", "", "this realm's identity certificate (PEM)")
-		keyFile     = flag.String("key", "", "this realm's identity key (PEM)")
-		id          = flag.String("id", "stub", "realm id: 1-32 of [a-z0-9-], unique per gateway")
-		name        = flag.String("name", "Stub realm", "name shown in the gateway's realm list")
-		build       = flag.String("build", "dev", "build identity reported to the gateway")
-		logLevel    = flag.String("log-level", "info", "debug, info, warn or error")
-		genIdentity = flag.String("gen-identity", "", "write a new realm-link identity to PREFIX.crt, .key and .pin, print the pin, and exit")
+		gateway     = s.String("GATEWAY", "127.0.0.1:9030", "gateway realm port to dial (host:port)")
+		gatewayName = s.String("GATEWAY_NAME", "", "gateway name checked in CA mode (default: the host in GATEWAY)")
+		gatewayPins = s.String("GATEWAY_PINS", "", "comma-separated gateway pins (sha256/...) or files of pins")
+		gatewayCA   = s.Blob("GATEWAY_CA", false, "CA bundle that may issue the gateway's certificate")
+		cert        = s.Blob("CERT", false, "this realm's identity certificate")
+		key         = s.Blob("KEY", true, "this realm's identity key")
+		id          = s.String("ID", "stub", "realm id: 1-32 of [a-z0-9-], unique per gateway")
+		name        = s.String("NAME", "Stub realm", "name shown in the gateway's realm list")
+		build       = s.String("BUILD", "dev", "build identity reported to the gateway")
+		logLevel    = s.String("LOG_LEVEL", "info", "debug, info, warn or error")
+		dialTimeout = s.Duration("DIAL_TIMEOUT", 10*time.Second, "time allowed to connect and complete the TLS handshake")
 	)
-	flag.Parse()
+	genIdentity := s.Flags().String("gen-identity", "", "write a new realm-link identity to PREFIX.crt, .key and .pin, print the pin, and exit")
+	cli.Parse(s, os.Args[1:])
 	if *genIdentity != "" {
 		pin, err := realmproto.WriteIdentity(*genIdentity, "Sanctuary realm "+*id)
 		if err != nil {
@@ -45,19 +49,30 @@ func main() {
 		fmt.Println(pin)
 		return
 	}
-
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
-		fmt.Fprintln(os.Stderr, "bad -log-level:", err)
-		os.Exit(2)
-	}
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-	slog.SetDefault(log)
-
-	conf, err := clientTLS(*certFile, *keyFile, *gatewayPins, *gatewayCA, *serverName, *gateway)
-	if err != nil {
+	log := cli.Logger(*logLevel)
+	cli.Report(log, s)
+	fail := func(err error) {
 		log.Error("realm link TLS", "err", err)
 		os.Exit(1)
+	}
+
+	identity, err := cli.KeyPair(cert, key, "realm identity (CERT, KEY; make one with -gen-identity)")
+	if err != nil {
+		fail(err)
+	}
+	trust, err := cli.Trust(*gatewayPins, gatewayCA)
+	if err != nil {
+		fail(err)
+	}
+	serverName := *gatewayName
+	if serverName == "" {
+		if h, _, err := net.SplitHostPort(*gateway); err == nil {
+			serverName = h
+		}
+	}
+	conf, err := realmproto.ClientTLS(identity, trust, serverName)
+	if err != nil {
+		fail(err)
 	}
 
 	// SIGTERM ends the realm. The drain sequence (protocol.md §8: tell
@@ -66,7 +81,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log.Info("realm starting", "realm", *id, "gateway", *gateway)
-	err = realm.Run(ctx, realm.TLSDialer(*gateway, conf, 10*time.Second), realm.Config{
+	err = realm.Run(ctx, realm.TLSDialer(*gateway, conf, *dialTimeout), realm.Config{
 		ID:      *id,
 		Name:    *name,
 		Build:   *build,
@@ -78,30 +93,4 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("realm stopped")
-}
-
-func clientTLS(certFile, keyFile, pinList, caFile, serverName, addr string) (*tls.Config, error) {
-	if certFile == "" || keyFile == "" {
-		return nil, fmt.Errorf("-cert and -key are required (make them with -gen-identity)")
-	}
-	id, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, err
-	}
-	pins, err := realmproto.ReadPins(strings.Split(pinList, ","))
-	if err != nil {
-		return nil, err
-	}
-	trust := realmproto.Trust{Pins: pins}
-	if caFile != "" {
-		if trust.CAs, err = realmproto.LoadCAs(caFile); err != nil {
-			return nil, err
-		}
-	}
-	if serverName == "" {
-		if host, _, err := net.SplitHostPort(addr); err == nil {
-			serverName = host
-		}
-	}
-	return realmproto.ClientTLS(id, trust, serverName)
 }

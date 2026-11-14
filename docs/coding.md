@@ -35,6 +35,8 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Readable rendering of telnet bytes | `telnet.Describe` | `internal/telnet/describe.go` |
 | WebSocket upgrade, origin check, framing | `websocket.Upgrade`, `websocket.Conn` | `internal/websocket` |
 | Development TLS certificate | `gateway.SelfSigned` | `internal/gateway/tls.go` |
+| Declare a program setting once: flag, `SANCTUARY_` env var, env-file key, secret handling | `config.Set` (`String`, `Int`, `Bool`, `Duration`, `Blob`) | `internal/config` |
+| Command startup: parse settings, logger, report sources, key pairs, trust | `cli.Parse`, `cli.Logger`, `cli.Report`, `cli.KeyPair`, `cli.Trust` | `internal/cli` |
 | Validate a GMCP package name | `gmcp.ValidPackage` | `internal/gmcp` |
 | Realm protocol: frames, messages, validation, in-memory link | `realmproto.Conn`, `realmproto.Pipe`, `Encode`/`Decode` | `internal/realmproto` (spec: [protocol.md](protocol.md)) |
 | Client info as it crosses to a realm (drops MNES variables), and back | `realmproto.ClientFrom`, `ClientInfo.ToSession` | `internal/realmproto/message.go` |

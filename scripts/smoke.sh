@@ -55,10 +55,17 @@ for _ in $(seq 50); do
     sleep 0.1
 done
 
-./bin/sanctuary-realm -log-level debug -gateway 127.0.0.1:19030 \
-    -cert "$work/keys/realm-stub.crt" -key "$work/keys/realm-stub.key" \
-    -gateway-pins "$work/keys/gateway.pin" \
-    >"$rlog" 2>&1 &
+# The realm is configured the way a secrets manager would do it: settings
+# in an env file, and its private key as environment content (as `doppler
+# run` injects it), not as a file path.
+cat >"$work/realm.env" <<ENV
+SANCTUARY_GATEWAY=127.0.0.1:19030
+SANCTUARY_GATEWAY_PINS=$work/keys/gateway.pin
+SANCTUARY_CERT_FILE=$work/keys/realm-stub.crt
+SANCTUARY_LOG_LEVEL=debug
+ENV
+SANCTUARY_KEY="$(cat "$work/keys/realm-stub.key")" \
+    ./bin/sanctuary-realm -config "$work/realm.env" >"$rlog" 2>&1 &
 realm=$!
 for _ in $(seq 50); do
     grep -q '"msg":"realm registered"' "$log" && break
@@ -86,6 +93,9 @@ logcheck "stub realm registered over mTLS"              '"msg":"realm registered
 logcheck "players routed to the realm"                  '"msg":"routed to realm".*"realm":"stub"'
 logcheck "realm process registered with the gateway"    '"msg":"registered with gateway"' "$rlog"
 logcheck "realm served the players"                     '"msg":"session opened".*"remote":"gateway"' "$rlog"
+logcheck "realm read its settings from the env file"     '"msg":"setting","name":"GATEWAY","value":"127.0.0.1:19030","from":"file"' "$rlog"
+logcheck "realm key came from the environment"         '"msg":"setting","name":"KEY","value":"\[secret\]","from":"env"' "$rlog"
+if grep -q "PRIVATE KEY" "$rlog"; then echo "FAIL  log: realm logged its private key"; status=1; else echo "PASS  log: private key never logged"; fi
 noerrors gateway "$log"
 
 echo "==> stopping the gateway (graceful shutdown)"
