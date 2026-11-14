@@ -15,7 +15,8 @@ Read and follow:
 | --- | --- |
 | `scripts/test.sh` | vet plus all tests, with the race detector |
 | `scripts/smoke.sh` | real binary against scripted clients |
-| `scripts/run.sh -log-level debug` | run the gateway on 9000/9010/9020 |
+| `scripts/run.sh -log-level debug` | run the gateway on 9000/9010/9020, stub realm in-process |
+| `scripts/run.sh -split` | the same with the stub realm as a separate process over mTLS |
 | `scripts/vulncheck.sh` | known vulnerabilities reachable from our code (govulncheck) |
 | `/red-team` | adversarial review on a copy of the module, including known vulnerabilities; findings go in `docs/security/redteam-log.md` |
 

@@ -460,3 +460,74 @@ func TestSilentGatewayEndsLink(t *testing.T) {
 		t.Fatalf("Serve with a silent gateway = %v, want ErrPeerSilent", err)
 	}
 }
+
+// Run reconnects after the link drops and registers again, so a gateway
+// restart (or a network blip) needs no operator action.
+func TestRunReconnects(t *testing.T) {
+	links := make(chan *rpt.Peer, 4)
+	dial := func(ctx context.Context) (*realmproto.Conn, error) {
+		gw, conn := rpt.NewGateway(t)
+		links <- gw
+		return conn, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- realm.Run(ctx, dial, realm.Config{ID: "live", Handler: echo.Handler{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+			realm.Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(rpt.Timeout):
+			t.Error("Run did not return after cancel")
+		}
+	})
+	first := <-links
+	first.Handshake()
+	first.Conn.Close() // the gateway goes away
+	select {
+	case second := <-links:
+		if h := second.Handshake(); h.Realm != "live" {
+			t.Fatalf("second hello = %+v, want realm live", h)
+		}
+	case <-time.After(rpt.Timeout):
+		t.Fatal("realm did not reconnect after the link dropped")
+	}
+}
+
+// A rejection is retried, not fatal: a duplicate-realm rejection is
+// usually this realm's own previous link, not yet noticed as dead.
+func TestRunRetriesAfterReject(t *testing.T) {
+	links := make(chan *rpt.Peer, 4)
+	dial := func(ctx context.Context) (*realmproto.Conn, error) {
+		gw, conn := rpt.NewGateway(t)
+		links <- gw
+		return conn, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- realm.Run(ctx, dial, realm.Config{ID: "live", Handler: echo.Handler{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+			realm.Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond})
+	}()
+	first := <-links
+	rpt.Expect[*realmproto.Hello](first)
+	first.Send(&realmproto.Reject{Reason: realmproto.RejectDuplicateRealm})
+	select {
+	case second := <-links:
+		second.Handshake()
+	case <-time.After(rpt.Timeout):
+		t.Fatal("realm gave up after one rejection")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run after cancel = %v, want context.Canceled", err)
+		}
+	case <-time.After(rpt.Timeout):
+		t.Fatal("Run did not return after cancel")
+	}
+}

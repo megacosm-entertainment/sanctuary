@@ -55,20 +55,25 @@ Done:
   (protocol.md §8a).
 - The gateway binary runs the stub realm in-process over the in-memory
   link (`-stub-realm`, default on; `-echo` restores stage-01 behaviour).
+- Realms as separate processes: the gateway's realm port (`-realm-listen`,
+  mTLS only, off by default) with pinned-key and CA trust, handshake
+  limits and per-source rate limiting; `sanctuary-realm`, which dials in
+  and reconnects with jittered backoff; keepalive on both sides
+  (protocol.md §3, §8).
 
-Try it: `scripts/run.sh -log-level debug`, then connect any client to
-9000/9010/9020 as before. The banner says "stub realm"; `/info` shows the
-client as the realm sees it (MNES variables and telnet option lists stay in
-the gateway, so they no longer appear).
+Try it: `scripts/run.sh -log-level debug` (realm in-process) or
+`scripts/run.sh -split -log-level debug` (realm as its own process over
+mTLS), then connect any client to 9000/9010/9020 as before. The banner says
+"stub realm"; `/info` shows the client as the realm sees it (MNES variables
+and telnet option lists stay in the gateway, so they no longer appear).
 
 Remaining:
 
-1. mTLS realm listener on the gateway, key pinning, and a separate
-   `sanctuary-realm` binary that dials in with reconnect backoff.
-2. Keepalive (ping on idle, close on missing pong).
-3. Drain on SIGTERM, and holding players when a realm is lost, re-offering
+1. Drain on SIGTERM, and holding players when a realm is lost, re-offering
    them when it returns (protocol.md §8).
-4. ASCII fallback for clients that have not claimed UTF-8.
+2. ASCII fallback for clients that have not claimed UTF-8.
+3. The runtime image (see open items) and a `compose.yaml` running gateway
+   and realm as separate containers.
 
 From design §13: a versioned message schema against a transport interface
 (socket and in-memory), a world server that accepts sessions and reflects

@@ -28,3 +28,6 @@ coverage.*
 
 # Note: internal/*/testdata/fuzz/ is deliberately NOT ignored. Go writes a
 # failing fuzz input there; committing it turns the crash into a regression test.
+
+# Local development identities (scripts/run.sh -split)
+.dev/

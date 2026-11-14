@@ -52,16 +52,29 @@ bytes   payload   one JSON object, UTF-8
 ## 3. Transport and authentication
 
 - **TCP with mutual TLS** (TLS 1.3 only). The gateway listens on its own
-  port, separate from player ports and not meant to be internet-facing
-  (default `127.0.0.1:9030`).
-- **Allowlist by certificate.** The gateway accepts a realm only if the
-  SHA-256 of its certificate's public key (SPKI) is on the configured
-  allowlist. No CA trust, so issuing a certificate grants nothing by itself.
-  The realm pins the gateway's key the same way.
+  port, separate from player ports and not meant to be internet-facing. It
+  is off unless configured (`-realm-listen`, conventionally
+  `127.0.0.1:9030`, or a private address when realms run on other hosts).
+- **Trust by pinned key, by CA, or both.** Each side accepts the other's
+  certificate if either:
+  - **its public key is pinned.** A pin is `sha256/` followed by the base64
+    SHA-256 of the certificate's SubjectPublicKeyInfo. Pinning the key, not
+    the certificate, means a renewed certificate for the same key keeps
+    working. This is the default and needs no infrastructure; or
+  - **it chains to a configured CA,** with the right extended key usage
+    (client authentication for a realm, server authentication for the
+    gateway), and for the gateway the expected name. This is for
+    certificate managers that rotate keys, such as cert-manager.
+
+  With neither configured, the side refuses to start: an empty trust is
+  never "accept everyone". Identities for pinning are made with
+  `-gen-identity PREFIX` (writes `PREFIX.crt`, `.key` with mode 0600, and
+  `.pin`, and never overwrites).
 - **Authenticate before allocating.** Until the TLS handshake completes, a
-  connection gets a short handshake timeout and no buffers beyond TLS's own.
-  Registration attempts are rate-limited per source address, and the number
-  of registered realms is capped.
+  connection holds only a pending slot: no protocol buffers, no writer.
+  The handshake has 5 seconds; at most 16 may be in progress at once;
+  each source address may make 30 attempts a minute. The number of
+  registered realms is capped (32).
 - **In-memory transport** for tests and same-process use: the same frames
   over an in-process pipe, with no TLS because nothing leaves the process.
 

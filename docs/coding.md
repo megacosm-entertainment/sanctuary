@@ -40,7 +40,12 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Client info as it crosses to a realm (drops MNES variables), and back | `realmproto.ClientFrom`, `ClientInfo.ToSession` | `internal/realmproto/message.go` |
 | Non-blocking, bounded writer for a link (per-session and per-link limits) | `realmproto.Writer` | `internal/realmproto/writer.go` |
 | Realm side of a link: handshake, players as `session.Transport`s | `realm.Serve` | `internal/realm` |
+| Keep a realm connected: dial over mTLS, reconnect with jittered backoff | `realm.Run`, `realm.TLSDialer`, `realm.Backoff` | `internal/realm/dial.go` |
+| Realm-link TLS: pinned keys and/or CA, identities, pin files | `realmproto.ServerTLS`, `ClientTLS`, `Trust`, `WriteIdentity`, `ReadPins` | `internal/realmproto/tls.go` |
+| Ping a quiet link, end a silent one | `realmproto.Keepalive`, `Conn.RecvIdle` | `internal/realmproto/keepalive.go` |
 | Gateway side of realm links; route a player to a realm | `proxy.Hub`, `proxy.Handler` | `internal/proxy` |
+| Realm port: handshake limits, per-source rate limiting | `proxy.Hub.ServeListener` | `internal/proxy/listener.go` |
+| The stub realm (echo behind the protocol) | `realm.StubHandler` | `internal/realm/stub.go` |
 | Test clients and harnesses | see [testing.md §1](testing.md#1-use-the-shared-scaffolding-extend-it-dont-hand-roll) | |
 
 ## 3. Dependencies
