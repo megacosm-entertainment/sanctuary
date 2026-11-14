@@ -232,3 +232,28 @@ func TOTPCode(secret []byte, now time.Time) string {
 
 // TOTPDigits is how many digits a code has.
 const TOTPDigits = totpDigits
+
+// TOTPTruncated reports whether code, refused for secret, is what an app
+// holding only the first n characters of the displayed key would show at
+// now: a key cut short when typed or pasted into the app. It is a
+// diagnosis for a code already refused, never a way to accept one.
+func TOTPTruncated(secret []byte, code string, now time.Time) (n, of int, ok bool) {
+	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
+	if len(code) != totpDigits {
+		return 0, 0, false
+	}
+	full := b32.EncodeToString(secret)
+	cur := now.Unix() / int64(totpStep/time.Second)
+	for n := 16; n < len(full); n++ { // shorter keys are under 80 bits: not ours
+		k, err := b32.DecodeString(full[:n])
+		if err != nil {
+			continue // not a length base32 can end at
+		}
+		for d := -totpSkew; d <= totpSkew; d++ {
+			if subtle.ConstantTimeCompare([]byte(totpAt(k, cur+int64(d))), []byte(code)) == 1 {
+				return n, len(full), true
+			}
+		}
+	}
+	return 0, 0, false
+}

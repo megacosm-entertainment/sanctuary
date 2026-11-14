@@ -160,3 +160,26 @@ func TestUniformIndex(t *testing.T) {
 		}
 	}
 }
+
+func TestTOTPTruncated(t *testing.T) {
+	secret := []byte("12345678901234567890")
+	full := b32.EncodeToString(secret)
+	now := time.Unix(1_700_000_000, 0)
+	for _, n := range []int{16, 21, 26, 31} {
+		short, err := b32.DecodeString(full[:n])
+		if err != nil {
+			continue
+		}
+		got, of, ok := TOTPTruncated(secret, TOTPCode(short, now), now)
+		if !ok || got != n || of != len(full) {
+			t.Errorf("key cut to %d: TOTPTruncated = %d of %d, %v", n, got, of, ok)
+		}
+	}
+	// The right code, or a wrong one, is not a truncation.
+	if _, _, ok := TOTPTruncated(secret, TOTPCode(secret, now), now); ok {
+		t.Error("the full key's own code reported as truncated")
+	}
+	if _, _, ok := TOTPTruncated(secret, "000000", now); ok {
+		t.Error("000000 reported as truncated")
+	}
+}

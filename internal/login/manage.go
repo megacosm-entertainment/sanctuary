@@ -22,11 +22,12 @@ const (
 	msgTOTPIntroFmt = "Add this account to your authenticator app (Google Authenticator, Aegis, 1Password, ...).\n" +
 		"Enter this key by hand, choosing a time-based code of 6 digits:\n  %s\n" +
 		"or open this link, or make a QR code of it (in a shell, put it in single quotes):\n%s\n"
-	msgTOTPConfirm = "The 6-digit code your app shows (Enter to cancel): "
-	msgSameKey     = "This is the same key as last time: if your app already has it, just type its code.\n"
-	msgTOTPOn      = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
-	msgTOTPOff     = "Your authenticator is removed, with its recovery codes.\n"
-	msgCodesFmt    = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
+	msgTOTPConfirm  = "The 6-digit code your app shows (Enter to cancel): "
+	msgTruncatedFmt = "Your app seems to have only the first %d of the %d characters of the key. Remove it from the app and enter the whole key again; it ends with the last group shown above.\n"
+	msgSameKey      = "This is the same key as last time: if your app already has it, just type its code.\n"
+	msgTOTPOn       = "Your authenticator is set up. From now on you will be asked for a code when you log in.\n"
+	msgTOTPOff      = "Your authenticator is removed, with its recovery codes.\n"
+	msgCodesFmt     = "Recovery codes. Each works once, in place of a code from your app, if you lose it.\n" +
 		"Keep them somewhere safe: they are shown only now.\n%s"
 	msgOldCodes   = "Your old recovery codes no longer work.\n"
 	msgRaceTOTP   = "Your authenticator changed in another session; nothing was changed here.\n"
@@ -171,6 +172,10 @@ func (t *turn) enrolTOTP(a *account.Account) (*account.Account, error) {
 		}
 		if hint, ok := digitsHint(code); ok {
 			t.say(hint)
+			continue
+		}
+		if n, of, ok := account.TOTPTruncated(secret, code, t.h.cfg.now()); ok {
+			t.say(fmt.Sprintf(msgTruncatedFmt, n, of))
 			continue
 		}
 		t.say(msgCodeWrong + "Check that the app's clock is right and that you entered the whole key.\n")

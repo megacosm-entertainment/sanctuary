@@ -287,3 +287,26 @@ func TestRetriedSetupKeepsTheKey(t *testing.T) {
 	h.Type(account.TOTPCode(secret, clk.now()))
 	contains(t, prompt(t, h, "Realm"), "authenticator is set up")
 }
+
+// A key cut short in the app (seen with Authy) is named, not just refused.
+func TestTruncatedKeyIsExplained(t *testing.T) {
+	f := newFixture(t)
+	clk := f.useClock()
+	f.add("Mara", goodPassword)
+	h := f.start()
+	inLobby(t, h, "Mara", goodPassword)
+	h.Type("totp")
+	hiddenPrompt(t, h, "current password")
+	h.Type(goodPassword)
+	full := uriSecret.FindStringSubmatch(prompt(t, h, "6-digit code"))[1]
+	b32 := base32.StdEncoding.WithPadding(base32.NoPadding)
+	short, err := b32.DecodeString(full[:21])
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Type(account.TOTPCode(short, clk.now()))
+	contains(t, prompt(t, h, "6-digit code"), "only the first 21 of the 32 characters")
+	secret, _ := b32.DecodeString(full)
+	h.Type(account.TOTPCode(secret, clk.now()))
+	contains(t, prompt(t, h, "Realm"), "authenticator is set up")
+}
