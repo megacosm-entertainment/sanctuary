@@ -19,6 +19,9 @@ x-hardening: &hardening
   security_opt: ["no-new-privileges:true"]
   user: "65532:65532"
   restart: unless-stopped
+  # Time between SIGTERM and SIGKILL. The realm drains for up to 20s and
+  # the gateway flushes for up to 5s; the default (10s) could cut both.
+  stop_grace_period: 30s
 
 services:
   gateway:

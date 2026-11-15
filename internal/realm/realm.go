@@ -53,6 +53,10 @@ type Config struct {
 	// back, then the link closes, within this. Default 20s, inside the 30s
 	// grace an orchestrator usually allows between SIGTERM and SIGKILL.
 	DrainTimeout time.Duration
+
+	// OnRegistered, if set, is called once the gateway has welcomed the
+	// realm. Run uses it to tell a working link from failed attempts.
+	OnRegistered func()
 }
 
 // RejectedError is returned by Serve when the gateway refuses the realm.
@@ -98,6 +102,9 @@ func Serve(ctx context.Context, c *realmproto.Conn, cfg Config) error {
 		return err
 	}
 	l.log.Info("registered with gateway", "command_prefix", l.prefix)
+	if cfg.OnRegistered != nil {
+		cfg.OnRegistered()
+	}
 
 	// Handlers get their own context: on shutdown the realm announces the
 	// drain first, then tells handlers to finish (protocol.md §8).

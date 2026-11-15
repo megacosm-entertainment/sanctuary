@@ -129,14 +129,20 @@ address, so it must see players' real addresses.
   `scripts/compose.sh` notices rootless Podman and adds
   `compose.rootless.yaml`: the gateway uses pasta networking, which keeps
   addresses, and the realm shares the gateway's network namespace and dials
-  the realm port on loopback. Because Podman will not remove a container
-  that others depend on, `compose.sh up` first removes the realm
-  containers (compose recreates them; a realm reconnects by itself). Run
-  plain `podman compose up` and you may see "has dependent containers";
-  `podman rm -f sanctuary-realm-stub-1` clears it. The realm's output may
-  not appear in compose's; `podman logs -f sanctuary-realm-stub-1` shows it.
-  Set `SANCTUARY_ROOTLESS=0` or `1` to override
-  the detection.
+  the realm port on loopback. Set `SANCTUARY_ROOTLESS=0` or `1` to override
+  the detection. Living with the shared namespace:
+  - A restarted gateway has a new namespace. The realm exits after 15s
+    without a link (`SANCTUARY_GIVE_UP_AFTER`) and its restart policy starts
+    it in the new one, so it is back within about half a minute.
+  - Podman will not remove a container that others depend on, so
+    `compose.sh up` first removes the realm containers (compose recreates
+    them). Plain `podman compose up` may fail with "has dependent
+    containers"; `podman rm -f sanctuary-realm-stub-1` clears it.
+  - `podman compose restart` may kill the gateway at once (exit 137, no
+    "shutting down" in its log). `podman restart -t 30 <container>` allows
+    the graceful shutdown.
+  - The realm's output may not appear in compose's;
+    `podman logs -f sanctuary-realm-stub-1` shows it.
 - **Behind a load balancer or proxy:** it must not hide addresses either.
   The gateway does not read PROXY protocol headers or `X-Forwarded-For`
   (both are claims it cannot check); forward at the network level instead.

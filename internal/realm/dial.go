@@ -35,6 +35,12 @@ func TLSDialer(addr string, conf *tls.Config, timeout time.Duration) Dialer {
 type Backoff struct {
 	Min time.Duration // default 1s
 	Max time.Duration // default 60s
+	// GiveUp, when set, makes Run return ErrGaveUp after this long without
+	// a working link (since the last registered link ended, or since Run
+	// began), so a supervisor can restart the realm. Under rootless Podman
+	// the realm shares the gateway's network namespace, and only a restart
+	// joins a restarted gateway's new one. Zero means retry forever.
+	GiveUp time.Duration
 }
 
 func (b Backoff) withDefaults() Backoff {
@@ -59,15 +65,29 @@ func (b Backoff) delay(n int) time.Duration {
 	return rand.N(ceiling + 1)
 }
 
+// ErrGaveUp is returned by Run when Backoff.GiveUp passed without a link.
+var ErrGaveUp = errors.New("realm: gave up reaching the gateway")
+
 // Run keeps the realm connected: it dials, serves the link, and when the
 // link ends waits per the backoff and dials again. A link that stayed up
-// longer than Max resets the schedule. Run returns only when ctx is
-// cancelled.
+// longer than Max resets the schedule. Run returns when ctx is cancelled,
+// or with ErrGaveUp when Backoff.GiveUp is set and passes without a link.
 func Run(ctx context.Context, dial Dialer, cfg Config, backoff Backoff) error {
 	cfg = withDefaults(cfg)
 	backoff = backoff.withDefaults()
 	log := cfg.Log.With("realm", cfg.ID)
 	attempt := 0
+	// down is when the realm last had no working link: when Run began, or
+	// when a registered link ended. Failed attempts do not move it.
+	down := time.Now()
+	registered := false
+	onRegistered := cfg.OnRegistered
+	cfg.OnRegistered = func() {
+		registered = true
+		if onRegistered != nil {
+			onRegistered()
+		}
+	}
 	for {
 		start := time.Now()
 		c, err := dial(ctx)
@@ -76,6 +96,14 @@ func Run(ctx context.Context, dial Dialer, cfg Config, backoff Backoff) error {
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if registered {
+			registered = false
+			down = time.Now()
+		}
+		if backoff.GiveUp > 0 && time.Since(down) >= backoff.GiveUp {
+			log.Error("no link to the gateway; giving up so a supervisor can restart the realm", "for", backoff.GiveUp, "err", err)
+			return ErrGaveUp
 		}
 		if time.Since(start) > backoff.Max {
 			attempt = 0

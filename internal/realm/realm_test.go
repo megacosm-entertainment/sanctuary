@@ -627,3 +627,77 @@ func TestOversizeOutputDroppedNotFatal(t *testing.T) {
 	}
 	s.sync(t) // the link is still up
 }
+
+// With GiveUp set, a realm that cannot reach the gateway exits, so a
+// supervisor can restart it (rootless Podman: into the restarted gateway's
+// network namespace). Without it, Run retries forever.
+func TestRunGivesUp(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	refused := func(ctx context.Context) (*realmproto.Conn, error) {
+		return nil, errors.New("connection refused")
+	}
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- realm.Run(context.Background(), refused, realm.Config{ID: "live", Handler: echo.Handler{}, Log: quiet},
+			realm.Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond, GiveUp: 100 * time.Millisecond})
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, realm.ErrGaveUp) {
+			t.Fatalf("Run = %v, want ErrGaveUp", err)
+		}
+		if d := time.Since(start); d < 100*time.Millisecond {
+			t.Fatalf("gave up after %v, before GiveUp", d)
+		}
+	case <-time.After(rpt.Timeout):
+		t.Fatal("Run did not give up")
+	}
+
+	// Without GiveUp it keeps trying.
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		done <- realm.Run(ctx, refused, realm.Config{ID: "live", Handler: echo.Handler{}, Log: quiet},
+			realm.Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("Run without GiveUp returned %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	cancel()
+	<-done
+}
+
+// Short links that register do not count towards giving up: the clock
+// starts again when a registered link ends.
+func TestRunGiveUpCountsFromTheLastLink(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	links := make(chan *rpt.Peer, 16)
+	dial := func(ctx context.Context) (*realmproto.Conn, error) {
+		gw, conn := rpt.NewGateway(t)
+		links <- gw
+		return conn, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- realm.Run(ctx, dial, realm.Config{ID: "live", Handler: echo.Handler{}, Log: quiet},
+			realm.Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond, GiveUp: 150 * time.Millisecond})
+	}()
+	// Each link registers and drops; together they last well past GiveUp.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		select {
+		case gw := <-links:
+			gw.Handshake()
+			time.Sleep(60 * time.Millisecond)
+			gw.Conn.Close()
+		case err := <-done:
+			t.Fatalf("gave up (%v) although links kept registering", err)
+		case <-time.After(rpt.Timeout):
+			t.Fatal("realm stopped reconnecting")
+		}
+	}
+}

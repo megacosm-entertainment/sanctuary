@@ -39,6 +39,7 @@ func declare() (*config.Set, settings) {
 		build:       s.String("BUILD", "dev", "build identity reported to the gateway"),
 		logLevel:    s.String("LOG_LEVEL", "info", "debug, info, warn or error"),
 		dialTimeout: s.Duration("DIAL_TIMEOUT", 10*time.Second, "time allowed to connect and complete the TLS handshake"),
+		giveUp:      s.Duration("GIVE_UP_AFTER", 0, "exit after this long without a link to the gateway, so a supervisor restarts the realm (0: retry forever); compose sets it under rootless Podman"),
 	}
 }
 
@@ -46,7 +47,7 @@ func declare() (*config.Set, settings) {
 type settings struct {
 	gateway, gatewayName, gatewayPins, id, name, build, logLevel *string
 	gatewayCA, cert, key                                         config.Blob
-	dialTimeout                                                  *time.Duration
+	dialTimeout, giveUp                                          *time.Duration
 }
 
 func main() {
@@ -100,7 +101,7 @@ func main() {
 		Build:   *o.build,
 		Handler: realm.StubHandler,
 		Log:     log,
-	}, realm.Backoff{})
+	}, realm.Backoff{GiveUp: *o.giveUp})
 	if err != nil && ctx.Err() == nil {
 		log.Error("realm stopped", "err", err)
 		os.Exit(1)

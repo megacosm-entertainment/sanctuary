@@ -20,10 +20,9 @@ services:
     network_mode: "service:gateway"
     environment:
       SANCTUARY_GATEWAY: "127.0.0.1:9030"
-    # Sharing the gateway's namespace, the realm must restart with it: a
-    # restarted gateway has a new namespace, and the realm would otherwise
-    # keep dialling loopback in the old one.
-    depends_on:
-      gateway:
-        condition: service_started
-        restart: true
+      # A restarted gateway has a new network namespace; the realm, still in
+      # the old one, could never reach it again. So it exits after this long
+      # without a link, and the restart policy (unless-stopped) starts it in
+      # the gateway's current namespace. (Compose's depends_on restart does
+      # not cover `compose restart` under Podman.)
+      SANCTUARY_GIVE_UP_AFTER: "15s"

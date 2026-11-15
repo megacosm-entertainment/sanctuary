@@ -52,7 +52,7 @@ Keep this current. A reusable piece that isn't listed here is hard to find.
 | Client info as it crosses to a realm (drops MNES variables), and back | `realmproto.ClientFrom`, `ClientInfo.ToSession` | `internal/realmproto/message.go` |
 | Non-blocking, bounded writer for a link (per-session and per-link limits) | `realmproto.Writer` | `internal/realmproto/writer.go` |
 | Realm side of a link: handshake, players as `session.Transport`s | `realm.Serve` | `internal/realm` |
-| Keep a realm connected: dial over mTLS, reconnect with jittered backoff | `realm.Run`, `realm.TLSDialer`, `realm.Backoff` | `internal/realm/dial.go` |
+| Keep a realm connected: dial over mTLS, reconnect with jittered backoff, optionally give up so a supervisor restarts it | `realm.Run`, `realm.TLSDialer`, `realm.Backoff` (`GiveUp`) | `internal/realm/dial.go` |
 | Realm-link TLS: pinned keys and/or CA, identities, pin files | `realmproto.ServerTLS`, `ClientTLS`, `Trust`, `WriteIdentity`, `ReadPins` | `internal/realmproto/tls.go` |
 | Bind realm ids to keys; which ids a connected realm may claim | `realmproto.ParseRealmPins`, `RealmIDs`, `cli.RealmTrust` | `internal/realmproto/tls.go`, `internal/cli` |
 | Ping a quiet link, end a silent one | `realmproto.Keepalive`, `Conn.RecvIdle` | `internal/realmproto/keepalive.go` |
