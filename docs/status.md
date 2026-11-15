@@ -61,7 +61,8 @@ Try it: `scripts/run.sh`, connect, type `new`, and choose a name and password. A
 
 Next:
 
-1. `Char.Login` over GMCP, then OAuth.
+1. **Pick up here (2026-11-15):** `Char.Login` over GMCP, so GMCP clients (and later the web client) log in with a structured message rather than by answering text prompts. Then OAuth.
+2. Later, with the web client: the TOTP QR code as a GMCP image (old_game's `Sentience.Auth.QRCode`: purpose, image as a PNG data URL, uri, expires_at).
 
 ## Stage 02: internal session protocol and a stub world server (done)
 
